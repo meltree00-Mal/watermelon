@@ -4,7 +4,24 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>合成大西瓜 · 在线对战</title>
-<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+  import { getDatabase, ref, set, get, onValue, onChildAdded, onChildRemoved, off, remove, runTransaction, push, onDisconnect, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-database.js";
+  const firebaseConfig = {
+    apiKey: "AIzaSyDGBPJy_HaiimRx0TKoULoAboMbjnGSP98",
+    authDomain: "watermelon-battle.firebaseapp.com",
+    databaseURL: "https://watermelon-battle-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "watermelon-battle",
+    storageBucket: "watermelon-battle.firebasestorage.app",
+    messagingSenderId: "700912314975",
+    appId: "1:700912314975:web:bfb732c23497a7e4eac9ea"
+  };
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+  window.fb = { db, ref, set, get, onValue, onChildAdded, onChildRemoved, off, remove, runTransaction, push, onDisconnect, serverTimestamp };
+  window.fbReady = true;
+  document.dispatchEvent(new Event('firebase-ready'));
+</script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   html, body { overscroll-behavior: none; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
@@ -27,6 +44,17 @@
   .seat.me { border-color: #0984e3; }
   .seat.opp { border-color: #d63031; }
   .seat.opp.empty { border-color: #bdc3c7; opacity: 0.7; }
+  .seat.seat-clickable { cursor: pointer; transition: transform 0.15s, border-color 0.15s; border-color: #f39c12; position: relative; }
+  .seat.seat-clickable.empty { border-color: #bdc3c7; background: #f8f9fa; }
+  .seat.seat-clickable.empty:hover { border-color: #f39c12; background: white; transform: translateY(-2px); }
+  .seat.seat-clickable.empty .seat-avatar { opacity: 0.4; }
+  .seat.seat-clickable.mine { border-color: #0984e3; box-shadow: 0 0 0 3px rgba(9, 132, 227, 0.15); }
+  .seat.seat-clickable.opponent { border-color: #d63031; }
+  .seat.seat-clickable.mine .seat-name { color: #0984e3; }
+  .seat.seat-clickable.opponent .seat-name { color: #d63031; }
+  .seat-clickable .seat-avatar { cursor: pointer; }
+  .seat-leave { position: absolute; top: 4px; right: 4px; background: rgba(214, 48, 49, 0.1); border: none; color: #d63031; font-size: 14px; width: 22px; height: 22px; border-radius: 50%; cursor: pointer; line-height: 1; padding: 0; }
+  .seat-leave:hover { background: rgba(214, 48, 49, 0.2); }
   .seat-avatar { font-size: 38px; line-height: 1; margin-bottom: 4px; cursor: pointer; }
   .seat-name { font-weight: 700; font-size: 13px; margin-bottom: 8px; }
   .seat.me .seat-name { color: #0984e3; }
@@ -43,6 +71,15 @@
   .lobby-status.go { color: #00b894; background: #e8f8f5; }
   .lobby-status.warn { color: #e74c3c; background: #fee; }
   .lobby-tip { font-size: 11px; color: #95a5a6; line-height: 1.5; margin-top: 8px; }
+  .solo-divider { display: flex; align-items: center; gap: 10px; color: #b2bec3; font-size: 11px; margin: 14px 0 10px; }
+  .solo-divider::before, .solo-divider::after { content: ''; flex: 1; height: 1px; background: #dfe6e9; }
+  .solo-btn { width: 100%; background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%); color: white; border: none; border-radius: 12px; padding: 12px 16px; cursor: pointer; display: flex; align-items: center; gap: 12px; font-family: inherit; transition: transform 0.1s, box-shadow 0.15s; box-shadow: 0 4px 12px rgba(108, 92, 231, 0.3); }
+  .solo-btn:active { transform: translateY(1px); box-shadow: 0 2px 6px rgba(108, 92, 231, 0.3); }
+  .solo-btn:hover { box-shadow: 0 6px 16px rgba(108, 92, 231, 0.4); }
+  .solo-icon { font-size: 28px; line-height: 1; }
+  .solo-text { display: flex; flex-direction: column; align-items: flex-start; }
+  .solo-title { font-weight: 700; font-size: 14px; }
+  .solo-sub { font-size: 11px; opacity: 0.85; margin-top: 2px; }
   #debugLog { font-size: 10px; color: #636e72; background: #f8f9fa; border-radius: 6px; padding: 6px; margin-top: 8px; max-height: 80px; overflow: auto; text-align: left; font-family: monospace; }
   .title-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 8px; }
   h1 { font-size: 17px; font-weight: 700; color: #2d3436; display: flex; align-items: center; gap: 8px; }
@@ -56,7 +93,8 @@
   .canvas-wrap { position: relative; width: 100%; }
   canvas { display: block; width: 100%; height: auto; background: #fffbf0; border-radius: 14px; border: 3px solid #ffd6a0; touch-action: none; }
   .overlay { position: absolute; inset: 0; background: rgba(45, 52, 54, 0.92); border-radius: 14px; display: none; align-items: center; justify-content: center; flex-direction: column; color: white; backdrop-filter: blur(4px); text-align: center; padding: 20px; }
-  .overlay.show { display: flex; }
+  .overlay.show { display: flex; cursor: pointer; }
+  .overlay::after { content: '👆 点击屏幕任意位置回到大厅'; position: absolute; bottom: 20px; font-size: 11px; color: rgba(255,255,255,0.6); }
   .overlay h2 { font-size: 18px; margin-bottom: 4px; opacity: 0.85; }
   .overlay .result { font-size: 42px; font-weight: 800; margin: 14px 0; letter-spacing: 4px; }
   .result.win { color: #fdcb6e; text-shadow: 0 4px 0 #e67e22; }
@@ -71,9 +109,6 @@
   .power-btn .power-label { font-size: 13px; font-weight: 600; }
   .power-btn .power-count { font-size: 11px; color: #fff; background: #e74c3c; border-radius: 10px; padding: 2px 8px; font-weight: 700; min-width: 26px; text-align: center; }
   .power-btn:disabled .power-count { background: #95a5a6; }
-  .seat-action { text-align: center; margin-bottom: 14px; }
-  .seat.opp.empty { border-color: #bdc3c7; opacity: 0.8; cursor: pointer; }
-  .seat.opp.empty:hover { transform: translateY(-2px); }
   .footer { margin-top: 10px; font-size: 11px; color: #636e72; text-align: center; line-height: 1.5; }
 </style>
 </head>
@@ -88,25 +123,31 @@
         <div id="debugLog"></div>
       </div>
       <div id="lobbyContent" style="display:none;">
-        <div class="seat-action">
-          <button class="btn primary" id="sitBtn">点击坐下</button>
-        </div>
         <div class="table-area">
-          <div class="seat me">
-            <div class="seat-avatar" id="myAvatar" title="点击切换头像">🐱</div>
-            <div class="seat-name">我</div>
-            <button class="ready-btn" id="readyBtn">点击准备</button>
-            <div class="ready-status" id="myStatus">未准备</div>
+          <div class="seat seat-clickable empty" id="seatA" data-seat="A">
+            <div class="seat-avatar" id="avatarA">🪑</div>
+            <div class="seat-name" id="nameA">空座位</div>
+            <button class="ready-btn" id="readyBtnA" style="display:none;">点击准备</button>
+            <div class="ready-status" id="statusA">点我入坐</div>
           </div>
           <div class="vs-badge">VS</div>
-          <div class="seat opp empty" id="oppSeat">
-            <div class="seat-avatar" id="oppAvatar">➕</div>
-            <div class="seat-name" id="oppName">空位</div>
-            <div class="ready-status" id="oppStatus">点击坐下</div>
+          <div class="seat seat-clickable empty" id="seatB" data-seat="B">
+            <div class="seat-avatar" id="avatarB">🪑</div>
+            <div class="seat-name" id="nameB">空座位</div>
+            <button class="ready-btn" id="readyBtnB" style="display:none;">点击准备</button>
+            <div class="ready-status" id="statusB">点我入坐</div>
           </div>
         </div>
-        <div class="lobby-status" id="lobbyStatus">点击“坐下”进入对局</div>
-        <div class="lobby-tip">点击空位坐下 · 准备后开始 · 触屏拖动选择落点 · 一局 4 分钟</div>
+        <div class="lobby-status" id="lobbyStatus">点击空座位入坐</div>
+        <div class="solo-divider"><span>或者</span></div>
+        <button class="solo-btn" id="soloBtn">
+          <span class="solo-icon">🎯</span>
+          <span class="solo-text">
+            <span class="solo-title">单人练习</span>
+            <span class="solo-sub">无对手，挑战自己最高分</span>
+          </span>
+        </button>
+        <div class="lobby-tip">触屏拖动选择落点 · 松手掉落 · 点击头像切换 · 一局 4 分钟</div>
       </div>
     </div>
 
@@ -129,7 +170,7 @@
       </div>
       <div class="powers">
         <button class="power-btn" data-power="shake"><span class="power-icon">🌀</span><span class="power-label">摇晃</span><span class="power-count" id="shake-count">2</span></button>
-        <button class="power-btn" data-power="combo"><span class="power-icon">🍒</span><span class="power-label">5连发</span><span class="power-count" id="combo-count">1</span></button>
+        <button class="power-btn" data-power="combo"><span class="power-icon">🍎</span><span class="power-label">苹果5连</span><span class="power-count" id="combo-count">1</span></button>
       </div>
       <div class="footer">触屏拖动选择落点，松手掉落 · 水果中心越过红线即出局</div>
     </div>
@@ -142,7 +183,6 @@
 // ============================================================
 // CONFIG
 // ============================================================
-const PEER_PREFIX = 'wmb-2026-';
 const AVATARS = ['🐱', '🐶', '🐰', '🐼', '🦊', '🐯', '🐨', '🐵', '🐷', '🐮', '🦁', '🐸'];
 const GAME_DURATION_MS = 240000; // 240 秒一局
 
@@ -150,13 +190,17 @@ const GAME_DURATION_MS = 240000; // 240 秒一局
 // STATE
 // ============================================================
 let phase = 'init';
-let peer = null;
-let conn = null;
-let isHost = false;
-let roomCode = '';
-let mySeated = false;
-let joinTimeout = null;
-const ROOM_ID = 'MAIN';
+let isSolo = false;
+let mySeat = null;       // 'A' | 'B' | null
+let myUid = '';
+let pc = null;            // RTCPeerConnection
+let dc = null;            // RTCDataChannel
+let pendingIce = [];
+let seats = { A: null, B: null };
+let signalingActive = false;
+let soloHighScore = 0;
+try { soloHighScore = parseInt(localStorage.getItem('wmbSoloHigh') || '0', 10) || 0; } catch (e) {}
+try { myUid = localStorage.getItem('wmbUid'); if (!myUid) { myUid = 'u_' + Math.random().toString(36).slice(2, 12); localStorage.setItem('wmbUid', myUid); } } catch (e) { myUid = 'u_' + Math.random().toString(36).slice(2, 12); }
 let myAvatarIdx = Math.floor(Math.random() * AVATARS.length);
 let myAvatar = AVATARS[myAvatarIdx];
 let oppAvatar = '⏳';
@@ -175,185 +219,422 @@ function dlog(msg) {
   const el = $('debugLog');
   if (el) {
     const time = new Date().toLocaleTimeString();
-    el.innerHTML = `[${time}] ${msg}<br>` + el.innerHTML;
-    el.innerHTML = el.innerHTML.split('<br>').slice(0, 8).join('<br>');
+    const line = `[${time}] ${msg}`;
+    el.innerHTML = line + '<br>' + el.innerHTML;
+    el.innerHTML = el.innerHTML.split('<br>').slice(0, 20).join('<br>');
   }
 }
 
 // ============================================================
 // ROOM CODE
 // ============================================================
-function genCode() {
-  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-  let s = '';
-  for (let i = 0; i < 5; i++) s += chars[Math.floor(Math.random() * chars.length)];
-  return s;
-}
+// (genCode removed — no more room codes)
 
-function shareUrl() {
-  const u = new URL(location.href);
-  u.search = '?r=' + roomCode;
-  return u.href;
-}
+// (shareUrl removed — no more room codes)
 
 // ============================================================
 // NETWORKING
 // ============================================================
-function destroyPeer() {
-  if (joinTimeout) { clearTimeout(joinTimeout); joinTimeout = null; }
-  if (peer) {
-    try { peer.destroy(); } catch (e) {}
-    peer = null;
+function whenFbReady() {
+  if (window.fbReady) return Promise.resolve(window.fb);
+  return new Promise(resolve => {
+    document.addEventListener('firebase-ready', () => resolve(window.fb), { once: true });
+  });
+}
+
+async function initNetwork() {
+  $('loadingText').textContent = '正在连接服务器...';
+  dlog('等待 Firebase 初始化');
+  let fb;
+  try {
+    fb = await whenFbReady();
+    dlog('Firebase 已就绪');
+  } catch (e) {
+    showError('Firebase 加载失败: ' + e.message);
+    return;
   }
-  conn = null;
+  
+  // Initialize lobby state to 'waiting'
+  try {
+    const stateInitRef = fb.ref(fb.db, 'lobby/state');
+    const stateSnap = await fb.get(stateInitRef);
+    if (!stateSnap.val()) {
+      await fb.set(stateInitRef, 'waiting');
+      dlog('初始化 lobby/state 为 waiting');
+    }
+  } catch (e) {
+    dlog('初始化 lobby/state 失败: ' + e.message);
+  }
+  
+  // Subscribe to seats
+  const seatsRef = fb.ref(fb.db, 'lobby/seats');
+  fb.onValue(seatsRef, (snap) => {
+    const v = snap.val() || {};
+    seats = { A: v.A || null, B: v.B || null };
+    onSeatsChange();
+  }, (err) => {
+    dlog('seats listen error: ' + err.message);
+    showError('数据库读取失败：' + err.message);
+  });
+  // Subscribe to game state for start signal
+  const stateRef = fb.ref(fb.db, 'lobby/state');
+  let lastStateVal = null;
+  let stateListenerActive = false;
+  fb.onValue(stateRef, (snap) => {
+    const s = snap.val();
+    lastStateVal = s;
+    if (!stateListenerActive) {
+      stateListenerActive = true;
+      dlog('✓ Firebase 状态监听器已激活');
+    }
+    dlog(`Firebase state 更新: ${s}, phase: ${phase}`);
+    if (s === 'starting' && phase === 'lobby') {
+      dlog('✓ 收到 Firebase "starting" 信号 → 启动倒计时');
+      startCountdown();
+    }
+  }, (err) => {
+    dlog('Firebase 状态监听错误: ' + err.message);
+  });
+  
+  // 备用机制：每 500ms 检查一次是否应该启动
+  // 这是为了处理 Firebase 监听延迟或失败的情况
+  const startupCheckInterval = setInterval(() => {
+    if (phase !== 'lobby') {
+      clearInterval(startupCheckInterval);
+      return;
+    }
+    // 检查本地状态是否满足启动条件
+    if (seats.A && seats.B && seats.A.ready && seats.B.ready) {
+      if (lastStateVal !== 'starting') {
+        dlog('⚠ Firebase 状态未更新为 starting，使用本地备用启动机制');
+        // 只在 A 座位写入状态
+        if (mySeat === 'A') {
+          try {
+            fb.set(fb.ref(fb.db, 'lobby/state'), 'starting');
+            dlog('A 座位强制写入 starting 状态');
+          } catch (e) {
+            dlog('备用写入失败: ' + e.message);
+          }
+        }
+      }
+    }
+  }, 500);
+  
+  // Show lobby UI right away
+  onMyPeerReady();
 }
 
-function initNetwork() {
-  phase = 'idle';
-  mySeated = false;
-  isHost = false;
-  oppConnected = false;
-  $('loadingArea').style.display = 'none';
-  $('lobbyContent').style.display = 'block';
-  const roomInfo = $('roomInfoBlock');
-  if (roomInfo) roomInfo.style.display = 'none';
-  $('sitBtn').style.display = 'inline-block';
-  setStatus('点击“坐下”进入对局', '');
+function onSeatsChange() {
+  if (!seats) return;
+  // If I'm seated and my seat got cleared (e.g. by opponent's leave), reset
+  if (mySeat && (!seats[mySeat] || seats[mySeat].uid !== myUid)) {
+    mySeat = null;
+    myReady = false;
+    dlog('我的座位被清除或被占用');
+  }
+  const otherSeat = mySeat === 'A' ? 'B' : (mySeat === 'B' ? 'A' : null);
+  const otherData = otherSeat ? seats[otherSeat] : null;
+  const oldOppConn = oppConnected;
+  oppConnected = !!otherData;
+  if (otherData) {
+    oppAvatar = otherData.avatar || '🐶';
+    oppReady = !!otherData.ready;
+  } else {
+    oppAvatar = '⏳';
+    oppReady = false;
+  }
+  // If both seats filled and we just got an opponent, set up WebRTC
+  if (mySeat && otherData && !signalingActive) {
+    dlog('双方入坐，设置 WebRTC');
+    signalingActive = true;
+    setupWebRTC();
+  }
+  // If opponent left mid-game
+  if (!otherData && oldOppConn && (phase === 'playing' || phase === 'countdown')) {
+    onOppLeft();
+  }
+  // ★ BUGFIX: 双方都入坐就把 phase 切到 'lobby'。原版只在 onOppConnected 里切，
+  // 但 onOppConnected 是孤儿函数从来没被调用，导致 maybeStartCountdown 全部被
+  // 守卫拦下、游戏永远不开始。这里和 WebRTC 解耦，更稳。
+  if (mySeat && otherData && phase === 'waiting') {
+    phase = 'lobby';
+    dlog('★ 双方就位，phase → lobby');
+  }
+  // 任意一方离开则退回 waiting
+  if ((!mySeat || !otherData) && phase === 'lobby') {
+    phase = 'waiting';
+    dlog('★ 座位空缺，phase → waiting');
+  }
   updateLobbyUI();
+  // 座位变化时检查是否可以启动游戏
+  dlog(`座位变化: A=${!!seats.A} (ready=${seats.A?.ready || false}), B=${!!seats.B} (ready=${seats.B?.ready || false}), phase=${phase}`);
+  maybeStartCountdown();
+  // 延迟再检查一次，以处理时序问题
+  setTimeout(() => maybeStartCountdown(), 200);
 }
 
-function enterLobby() {
-  if (mySeated) return;
-  mySeated = true;
-  phase = 'waiting';
-  $('sitBtn').style.display = 'none';
-  $('loadingArea').style.display = 'block';
-  $('loadingText').textContent = '正在进入对局...';
-  setStatus('正在进入对局...', '');
-  destroyPeer();
+async function claimSeat(seatId) {
+  if (mySeat) return;
+  const fb = window.fb;
+  if (!fb) return;
+  const seatRef = fb.ref(fb.db, `lobby/seats/${seatId}`);
   try {
-    peer = new Peer(undefined, { debug: 1 });
-  } catch (e) { showError('PeerJS 初始化失败: ' + e.message); return; }
-
-  peer.on('open', id => {
-    dlog(`本地 peer 已就绪 id=${id}`);
-    onMyPeerReady();
-    tryConnectToHost();
-  });
-  peer.on('error', err => {
-    dlog(`本地 peer 错误: ${err.type} ${err.message || ''}`);
-    if (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error') {
-      showError('无法连接服务器，请检查网络后重试');
-      return;
+    const result = await fb.runTransaction(seatRef, (current) => {
+      if (current && current.uid !== myUid) return; // already taken
+      return { uid: myUid, avatar: myAvatar, ready: false, ts: fb.serverTimestamp() };
+    });
+    if (result.committed) {
+      mySeat = seatId;
+      dlog(`已入坐 ${seatId}`);
+      // Set up cleanup on disconnect
+      try {
+        await fb.onDisconnect(seatRef).remove();
+        // Also clean signaling for my seat on disconnect
+        const sigRef = fb.ref(fb.db, `lobby/signal/${seatId}-to-${seatId === 'A' ? 'B' : 'A'}`);
+        await fb.onDisconnect(sigRef).remove();
+      } catch (e) { dlog('onDisconnect 设置失败: ' + e.message); }
+      updateLobbyUI();
+    } else {
+      dlog(`入坐失败：${seatId} 已被占用`);
     }
-  });
-  peer.on('disconnected', () => {
-    dlog('本地 peer 与服务器断开，尝试重连');
-    try { peer.reconnect(); } catch (e) {}
-  });
+  } catch (e) {
+    dlog('claimSeat error: ' + e.message);
+    showError('入坐失败: ' + e.message);
+  }
 }
 
-function tryConnectToHost() {
-  if (!peer) return;
-  const target = PEER_PREFIX + ROOM_ID;
-  dlog(`尝试连接主机 ${target}`);
-  conn = peer.connect(target, { reliable: true, serialization: 'json' });
-  setupConn(conn);
-  conn.on('error', err => {
-    dlog(`连接主机错误: ${err}`);
-    if (err && err.type === 'peer-unavailable') {
-      createHostRoom(0);
-    }
-  });
-  joinTimeout = setTimeout(() => {
-    joinTimeout = null;
-    if (!conn || !conn.open) {
-      dlog('连接主机超时，尝试成为主机');
-      createHostRoom(0);
-    }
-  }, 9000);
-}
-
-function createHostRoom(retry) {
-  if (retry > 5) { showError('创建房间失败，刷新重试'); return; }
-  destroyPeer();
-  isHost = true;
-  $('loadingText').textContent = '正在创建对战房间...';
-  dlog(`尝试创建主机房间 #${retry+1}`);
+async function leaveSeat(updateUI = true) {
+  if (!mySeat || !window.fb) { mySeat = null; return; }
+  const fb = window.fb;
+  const seatId = mySeat;
+  mySeat = null;
+  myReady = false;
+  signalingActive = false;
   try {
-    peer = new Peer(PEER_PREFIX + ROOM_ID, { debug: 1 });
-  } catch (e) { showError('PeerJS 初始化失败: ' + e.message); return; }
-
-  peer.on('open', id => {
-    roomCode = ROOM_ID;
-    dlog(`房主连接成功 id=${id}`);
-    onMyPeerReady();
-  });
-  peer.on('connection', c => {
-    dlog(`收到加入者连接`);
-    if (conn && conn.open) { c.close(); return; }
-    conn = c;
-    setupConn(c);
-  });
-  peer.on('error', err => {
-    dlog(`房主错误: ${err.type} ${err.message || ''}`);
-    if (err.type === 'unavailable-id') {
-      try { peer.destroy(); } catch (e) {}
-      setTimeout(() => createHostRoom(retry + 1), 500 + Math.random() * 400);
-      return;
-    }
-    if (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error') {
-      showError('无法连接服务器，请检查网络后重试');
-      return;
-    }
-    showError('错误: ' + err.type);
-  });
-  peer.on('disconnected', () => {
-    dlog('与服务器断开，尝试重连');
-    try { peer.reconnect(); } catch (e) {}
-  });
+    dlog(`离开座位 ${seatId}，清理数据`);
+    await fb.remove(fb.ref(fb.db, `lobby/seats/${seatId}`));
+    await fb.remove(fb.ref(fb.db, `lobby/signal/${seatId}-to-${seatId === 'A' ? 'B' : 'A'}`));
+    await fb.remove(fb.ref(fb.db, `lobby/signal/${seatId === 'A' ? 'B' : 'A'}-to-${seatId}`));
+    // 重置状态为 'waiting'（防止旧的 'starting' 状态干扰）
+    await fb.set(fb.ref(fb.db, 'lobby/state'), 'waiting');
+    dlog('重置 lobby/state 为 waiting');
+  } catch (e) { dlog('leaveSeat: ' + e.message); }
+  closeWebRTC();
+  if (updateUI) updateLobbyUI();
 }
 
-function setupConn(c) {
-  c.on('open', () => {
-    if (joinTimeout) { clearTimeout(joinTimeout); joinTimeout = null; }
+async function setReady(state) {
+  if (!mySeat || !window.fb) return;
+  const fb = window.fb;
+  myReady = state;
+  try {
+    await fb.set(fb.ref(fb.db, `lobby/seats/${mySeat}/ready`), state);
+    dlog(`设置 ${mySeat} 座位 ready=${state}`);
+    // 准备状态更改后立即检查是否可以启动游戏
+    if (state) {
+      setTimeout(() => maybeStartCountdown(), 10);
+      // 再次检查，以防 Firebase 监听器延迟
+      setTimeout(() => maybeStartCountdown(), 300);
+      setTimeout(() => maybeStartCountdown(), 800);
+    }
+  } catch (e) { dlog('setReady: ' + e.message); }
+}
+
+async function setMyAvatar(av) {
+  myAvatar = av;
+  if (mySeat && window.fb) {
+    try {
+      await window.fb.set(window.fb.ref(window.fb.db, `lobby/seats/${mySeat}/avatar`), av);
+    } catch (e) {}
+  }
+}
+
+// =============== WebRTC setup ===============
+async function setupWebRTC() {
+  if (!mySeat) return;
+  const otherSeat = mySeat === 'A' ? 'B' : 'A';
+  const fb = window.fb;
+  dlog(`建立 WebRTC 连接 (我=${mySeat})`);
+
+  pc = new RTCPeerConnection({
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun.cloudflare.com:3478' }
+    ]
+  });
+
+  pc.onicecandidate = (e) => {
+    if (e.candidate) {
+      const path = `lobby/signal/${mySeat}-to-${otherSeat}/ice`;
+      const iceRef = fb.push(fb.ref(fb.db, path));
+      fb.set(iceRef, e.candidate.toJSON());
+    }
+  };
+  pc.oniceconnectionstatechange = () => {
+    dlog(`ICE state: ${pc.iceConnectionState}`);
+  };
+  pc.onconnectionstatechange = () => {
+    dlog(`PC state: ${pc.connectionState}`);
+    if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+      dlog('WebRTC 连接断开');
+    }
+  };
+  pc.ondatachannel = (e) => {
+    setupDataChannel(e.channel);
+  };
+
+  // Listen for incoming ICE
+  const iceListenRef = fb.ref(fb.db, `lobby/signal/${otherSeat}-to-${mySeat}/ice`);
+  fb.onChildAdded(iceListenRef, async (snap) => {
+    const c = snap.val();
+    if (!c) return;
+    try {
+      if (pc.remoteDescription) {
+        await pc.addIceCandidate(new RTCIceCandidate(c));
+      } else {
+        pendingIce.push(c);
+      }
+    } catch (err) {
+      dlog('addIce error: ' + err.message);
+    }
+  });
+
+  if (mySeat === 'A') {
+    // Initiator: create data channel + offer
+    const channel = pc.createDataChannel('game', { ordered: true });
+    setupDataChannel(channel);
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      await fb.set(fb.ref(fb.db, `lobby/signal/A-to-B/sdp`), { type: 'offer', sdp: offer.sdp });
+      dlog('已发送 offer');
+    } catch (e) { dlog('offer error: ' + e.message); }
+    // Listen for answer
+    fb.onValue(fb.ref(fb.db, `lobby/signal/B-to-A/sdp`), async (snap) => {
+      const v = snap.val();
+      if (v && v.type === 'answer' && pc && pc.signalingState === 'have-local-offer') {
+        try {
+          await pc.setRemoteDescription(new RTCSessionDescription(v));
+          dlog('收到 answer');
+          for (const c of pendingIce) {
+            try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (e) {}
+          }
+          pendingIce = [];
+        } catch (err) { dlog('setRemoteDesc(answer) error: ' + err.message); }
+      }
+    });
+  } else {
+    // Answerer: wait for offer
+    fb.onValue(fb.ref(fb.db, `lobby/signal/A-to-B/sdp`), async (snap) => {
+      const v = snap.val();
+      if (v && v.type === 'offer' && pc && !pc.remoteDescription) {
+        try {
+          await pc.setRemoteDescription(new RTCSessionDescription(v));
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          await fb.set(fb.ref(fb.db, `lobby/signal/B-to-A/sdp`), { type: 'answer', sdp: answer.sdp });
+          dlog('已发送 answer');
+          for (const c of pendingIce) {
+            try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (e) {}
+          }
+          pendingIce = [];
+        } catch (err) { dlog('answer error: ' + err.message); }
+      }
+    });
+  }
+}
+
+function setupDataChannel(channel) {
+  dc = channel;
+  dc.onopen = () => {
     dlog('数据通道已打开');
-    oppConnected = true;
     send({ t: 'hi', avatar: myAvatar });
-    onOppConnected();
-  });
-  c.on('data', handleMsg);
-  c.on('close', () => {
+    // 数据通道打开后检查是否可以启动游戏
+    maybeStartCountdown();
+  };
+  dc.onmessage = (e) => {
+    try { handleMsg(JSON.parse(e.data)); } catch (err) {}
+  };
+  dc.onclose = () => {
     dlog('数据通道关闭');
-    oppConnected = false;
-    onOppDisconnected();
-  });
-  c.on('error', err => {
-    dlog(`通道错误: ${err}`);
-    console.error('conn err', err);
-  });
+  };
+  dc.onerror = (err) => {
+    dlog('数据通道错误');
+    console.error(err);
+  };
 }
+
+function closeWebRTC() {
+  try { if (dc) dc.close(); } catch (e) {}
+  try { if (pc) pc.close(); } catch (e) {}
+  pc = null; dc = null; pendingIce = [];
+}
+
+function triggerStart() {
+  // A side broadcasts start to B via data channel; both sides start their own countdown
+  send({ t: 'start' });
+  if (phase === 'lobby') startCountdown();
+}
+
+function maybeStartCountdown() {
+  if (phase !== 'lobby') {
+    return;
+  }
+  
+  // 检查两个座位是否都满员且都准备就绪
+  const readyToStart = seats.A && seats.B && seats.A.ready && seats.B.ready;
+  
+  if (!readyToStart) {
+    return;
+  }
+  
+  dlog(`🎮 启动条件满足: 双方准备就绪。我的座位=${mySeat}`);
+  
+  // 只有 A 座位负责写入启动状态到 Firebase
+  if (mySeat === 'A' && window.fb) {
+    dlog('→ A 座位写入 "starting" 到 Firebase');
+    try {
+      window.fb.set(window.fb.ref(window.fb.db, 'lobby/state'), 'starting');
+    } catch (e) {
+      dlog('✗ 写入失败: ' + e.message);
+    }
+  } else if (mySeat === 'B') {
+    dlog('→ B 座位等待 Firebase 信号');
+  }
+}
+
+function onOppLeft() {
+  closeWebRTC();
+  if (phase === 'playing' || phase === 'countdown') {
+    phase = 'gameover';
+    showResult('对手离开了');
+  }
+}
+
+window.addEventListener('beforeunload', () => {
+  if (mySeat && window.fb) {
+    try {
+      window.fb.remove(window.fb.ref(window.fb.db, `lobby/seats/${mySeat}`));
+    } catch (e) {}
+  }
+});
+
+// (createRoom removed)
+
+// (joinRoom removed)
+
+// (setupConn removed - using setupDataChannel for WebRTC)
 
 function send(msg) {
-  if (conn && conn.open) {
-    try { conn.send(msg); } catch (e) {}
+  if (dc && dc.readyState === 'open') {
+    try { dc.send(JSON.stringify(msg)); } catch (e) {}
   }
 }
 
 function handleMsg(msg) {
   if (msg.t === 'hi') {
-    oppAvatar = msg.avatar || '🐶';
-    updateLobbyUI();
-  } else if (msg.t === 'avatar') {
-    oppAvatar = msg.avatar;
-    updateLobbyUI();
-  } else if (msg.t === 'ready') {
-    oppReady = !!msg.ready;
-    updateLobbyUI();
-    if (isHost && myReady && oppReady && phase === 'lobby') {
-      send({ t: 'start' });
-      setTimeout(startCountdown, 600);
-    }
+    // No-op: avatars sync via Firebase
   } else if (msg.t === 'start') {
     if (phase === 'lobby') startCountdown();
   } else if (msg.t === 'state') {
@@ -377,39 +658,20 @@ function onMyPeerReady() {
   phase = 'waiting';
   $('loadingArea').style.display = 'none';
   $('lobbyContent').style.display = 'block';
-  if ($('sitBtn')) $('sitBtn').style.display = 'none';
-  const roomInfo = $('roomInfoBlock');
-  if (roomInfo) roomInfo.style.display = 'none';
   updateLobbyUI();
 }
 
 function onOppConnected() {
-  if ($('loadingArea').style.display !== 'none') {
-    onMyPeerReady();
-  }
+  // Called when WebRTC data channel opens (used for confirming live link)
   phase = 'lobby';
-  $('oppSeat').classList.remove('empty');
-  $('oppName').textContent = '对手';
-  $('oppAvatar').textContent = oppAvatar;
-  send({ t: 'avatar', avatar: myAvatar });
-  if (myReady) send({ t: 'ready', ready: true });
   updateLobbyUI();
 }
 
 function onOppDisconnected() {
-  oppConnected = false;
-  oppReady = false;
+  // Triggered when data channel closes (network drop). Seat presence handled by Firebase listener.
   if (phase === 'playing' || phase === 'countdown') {
     phase = 'gameover';
-    showResult('对手离开了');
-  } else if (phase === 'lobby' || phase === 'waiting') {
-    phase = 'waiting';
-    $('oppSeat').classList.add('empty');
-    $('oppAvatar').textContent = '➕';
-    $('oppName').textContent = '空位';
-    $('oppStatus').textContent = '等待坐下';
-    $('oppStatus').classList.remove('on');
-    setStatus('对手已离开，等待新对手...', 'warn');
+    showResult('对手离线了');
   }
 }
 
@@ -429,102 +691,107 @@ function setStatus(text, cls) {
 }
 
 function updateLobbyUI() {
-  if (!$('myAvatar')) return;
-  $('myAvatar').textContent = myAvatar;
-  if (oppConnected) {
-    $('oppAvatar').textContent = oppAvatar;
-    $('oppSeat').classList.remove('empty');
-    $('oppName').textContent = '对手';
-    if (oppReady) {
-      $('oppStatus').textContent = '✓ 已准备';
-      $('oppStatus').classList.add('on');
+  if (!$('seatA')) return;
+  for (const s of ['A', 'B']) {
+    const el = $('seatedSeat' + s) || $('seat' + s);
+    const avatarEl = $('avatar' + s);
+    const nameEl = $('name' + s);
+    const statusEl = $('status' + s);
+    const readyBtn = $('readyBtn' + s);
+    const data = seats[s];
+    el.classList.remove('empty', 'mine', 'opponent');
+    // Remove old leave button if any
+    const oldLeave = el.querySelector('.seat-leave');
+    if (oldLeave) oldLeave.remove();
+    if (!data) {
+      el.classList.add('empty');
+      avatarEl.textContent = '🪑';
+      nameEl.textContent = '空座位';
+      statusEl.textContent = '点我入坐';
+      statusEl.classList.remove('on');
+      if (readyBtn) readyBtn.style.display = 'none';
     } else {
-      $('oppStatus').textContent = '未准备';
-      $('oppStatus').classList.remove('on');
+      const isMe = (data.uid === myUid);
+      el.classList.add(isMe ? 'mine' : 'opponent');
+      avatarEl.textContent = data.avatar || '🐱';
+      nameEl.textContent = isMe ? '我' : '对手';
+      if (data.ready) {
+        statusEl.textContent = '✓ 已准备';
+        statusEl.classList.add('on');
+      } else {
+        statusEl.textContent = '未准备';
+        statusEl.classList.remove('on');
+      }
+      if (readyBtn && isMe) {
+        readyBtn.style.display = 'block';
+        readyBtn.textContent = data.ready ? '✓ 已准备 · 点击取消' : '点击准备';
+        readyBtn.classList.toggle('ready', !!data.ready);
+      } else if (readyBtn) {
+        readyBtn.style.display = 'none';
+      }
+      // Add leave button for my own seat
+      if (isMe) {
+        const leaveBtn = document.createElement('button');
+        leaveBtn.className = 'seat-leave';
+        leaveBtn.textContent = '✕';
+        leaveBtn.title = '离开座位';
+        leaveBtn.onclick = (e) => { e.stopPropagation(); leaveSeat(); };
+        el.appendChild(leaveBtn);
+      }
     }
-  } else {
-    $('oppAvatar').textContent = '➕';
-    $('oppSeat').classList.add('empty');
-    $('oppName').textContent = '空位';
-    $('oppStatus').textContent = mySeated ? '等待对手' : '点击坐下';
-    $('oppStatus').classList.remove('on');
   }
-  $('readyBtn').textContent = myReady ? '✓ 已准备' : '点击准备';
-  $('readyBtn').classList.toggle('ready', myReady);
-  $('myStatus').textContent = myReady ? '已准备' : '未准备';
-  $('myStatus').classList.toggle('on', myReady);
-  $('readyBtn').disabled = !mySeated;
-
-  if (!oppConnected) {
-    if (mySeated) setStatus('等待对手坐下，准备后开始', '');
-    else setStatus('点击“坐下”进入对局', '');
-  } else if (myReady && oppReady) {
+  // Status line
+  const aData = seats.A, bData = seats.B;
+  const both = aData && bData;
+  if (!mySeat && !both) {
+    setStatus('点击空座位入坐', '');
+  } else if (!mySeat && both) {
+    setStatus('两个座位都有人了，等下一局吧', 'warn');
+  } else if (mySeat && !both) {
+    setStatus('等待对手入坐...', '');
+  } else if (both && aData.ready && bData.ready) {
     setStatus('双方就绪，即将开始！', 'go');
-  } else if (myReady || oppReady) {
+  } else if (both && (aData.ready || bData.ready)) {
     setStatus('等待另一位玩家准备...', '');
   } else {
-    setStatus('双方就坐，准备开始', '');
+    setStatus('双方就坐，点击准备开始', '');
   }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  $('myAvatar').addEventListener('click', () => {
-    myAvatarIdx = (myAvatarIdx + 1) % AVATARS.length;
-    myAvatar = AVATARS[myAvatarIdx];
-    updateLobbyUI();
-    send({ t: 'avatar', avatar: myAvatar });
-  });
-
-  $('readyBtn').addEventListener('click', () => {
-    if (!mySeated) return;
-    myReady = !myReady;
-    send({ t: 'ready', ready: myReady });
-    updateLobbyUI();
-    if (isHost && myReady && oppReady) {
-      send({ t: 'start' });
-      setTimeout(startCountdown, 600);
-    }
-  });
-
-  if ($('sitBtn')) {
-    $('sitBtn').addEventListener('click', enterLobby);
-  }
-  if ($('oppSeat')) {
-    $('oppSeat').addEventListener('click', () => {
-      if (!mySeated) enterLobby();
-    });
-  }
-  const shareButton = $('shareBtn');
-  if (shareButton) {
-    shareButton.addEventListener('click', async () => {
-      const url = shareUrl();
-      let copied = false;
-      try {
-        if (navigator.clipboard) {
-          await navigator.clipboard.writeText(url);
-          copied = true;
+  // Click on a seat: claim if empty (and I'm not seated elsewhere) or do nothing
+  ['A', 'B'].forEach(s => {
+    const seatEl = $('seat' + s);
+    seatEl.addEventListener('click', (e) => {
+      if (e.target.closest('.seat-leave')) return;
+      if (e.target.closest('.ready-btn')) return; // ready handled separately
+      // Avatar click on my own seat → cycle avatar
+      if (mySeat === s && e.target.closest('.seat-avatar')) {
+        myAvatarIdx = (myAvatarIdx + 1) % AVATARS.length;
+        setMyAvatar(AVATARS[myAvatarIdx]);
+        return;
+      }
+      // Empty seat click → claim
+      if (!seats[s]) {
+        if (mySeat) {
+          // already in another seat, switch
+          leaveSeat(false).then(() => claimSeat(s));
+        } else {
+          claimSeat(s);
         }
-      } catch (e) {}
-      if (!copied) {
-        const ta = document.createElement('textarea');
-        ta.value = url;
-        document.body.appendChild(ta);
-        ta.select();
-        try { document.execCommand('copy'); copied = true; } catch (e) {}
-        document.body.removeChild(ta);
       }
-      if (!copied && navigator.share) {
-        try { await navigator.share({ title: '合成大西瓜对战', url }); copied = true; } catch (e) {}
-      }
-      const btn = $('shareBtn');
-      btn.classList.add('copied');
-      btn.textContent = copied ? '✓ 已复制' : '复制失败';
-      setTimeout(() => { btn.classList.remove('copied'); btn.textContent = '📋 复制邀请链接'; }, 1800);
     });
-  }
+    const rb = $('readyBtn' + s);
+    if (rb) rb.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (mySeat !== s) return;
+      setReady(!myReady);
+    });
+  });
 
   $('leaveBtn').addEventListener('click', leaveGame);
-  $('overlayBtn').addEventListener('click', leaveGame);
+  $('overlayBtn').addEventListener('click', (e) => { e.stopPropagation(); leaveGame(); });
+  $('overlay').addEventListener('click', () => { if (phase === 'gameover') leaveGame(); });
 
   document.querySelectorAll('.power-btn').forEach(btn => {
     btn.addEventListener('click', () => activatePower(btn.dataset.power));
@@ -534,21 +801,48 @@ document.addEventListener('DOMContentLoaded', () => {
     muted = !muted;
     e.currentTarget.textContent = muted ? '🔇' : '🔊';
   });
+
+  const soloBtnEl = $('soloBtn');
+  if (soloBtnEl) soloBtnEl.addEventListener('click', startSolo);
 });
 
-function leaveGame() {
+async function leaveGame() {
+  victoryAnim = 0;
+  victoryParticles = [];
+  if (isSolo) {
+    isSolo = false;
+    $('overlay').classList.remove('show');
+    $('gameScreen').style.display = 'none';
+    $('lobby').style.display = 'block';
+    phase = mySeat ? 'lobby' : 'waiting';
+    updateLobbyUI();
+    return;
+  }
   send({ t: 'leave' });
+  await leaveSeat(false);
   $('overlay').classList.remove('show');
   $('gameScreen').style.display = 'none';
   $('lobby').style.display = 'block';
   myReady = false;
   oppReady = false;
-  phase = oppConnected ? 'lobby' : 'waiting';
+  phase = 'waiting';
   updateLobbyUI();
 }
 
 function startCountdown() {
   if (phase !== 'lobby') return;
+  isSolo = false;
+  phase = 'countdown';
+  $('lobby').style.display = 'none';
+  $('gameScreen').style.display = 'block';
+  resetGame();
+  countdownEnd = performance.now() + 3500;
+  beep(440, 0.1, 'sine', 0.05);
+}
+
+function startSolo() {
+  if (phase === 'countdown' || phase === 'playing') return;
+  isSolo = true;
   phase = 'countdown';
   $('lobby').style.display = 'none';
   $('gameScreen').style.display = 'block';
@@ -574,26 +868,210 @@ const W = canvas.width, H = canvas.height;
 
 // FRUITS: 物理半径 r，配色 body/accent 作为图片未加载时的回退色，
 // sx/sy/sw/sh 是 watermelon-battle.png 这张雪碧图里每个水果的像素位置（自动检测的）
+// 雪碧图坐标（基于 fruits.png ~1248x1248）。如果图标位置不对，调整 sx/sy/sw/sh 即可。
+// 基于 1254x1254 fruits.png 校准的坐标。如果切错位，URL 加 ?debug=1 看裁切框。
 const FRUITS = [
-  { name:'蓝莓',   r:14, body:'#7d4f9e', accent:'#4f2d6f', sx:43,  sy:46,  sw:158, sh:158 },
-  { name:'青柠',   r:18, body:'#aacf5b', accent:'#7a9d3e', sx:329, sy:17,  sw:157, sh:185 },
-  { name:'樱桃',   r:23, body:'#e63946', accent:'#a4262c', sx:623, sy:0,   sw:165, sh:208 },
-  { name:'橙子',   r:28, body:'#f39c12', accent:'#b87510', sx:895, sy:14,  sw:202, sh:200 },
-  { name:'番茄',   r:35, body:'#e74c3c', accent:'#a82d22', sx:595, sy:242, sw:213, sh:231 },
-  { name:'奇异果', r:42, body:'#a4d34c', accent:'#6c9b1f', sx:300, sy:251, sw:223, sh:229 },
-  { name:'桃子',   r:50, body:'#ffc4b8', accent:'#e89189', sx:883, sy:242, sw:237, sh:238 },
-  { name:'菠萝',   r:58, body:'#f1c40f', accent:'#b58a07', sx:1,   sy:505, sw:242, sh:286 },
-  { name:'哈密瓜', r:68, body:'#c8e6a0', accent:'#9bbf6f', sx:875, sy:503, sw:258, sh:293 },
-  { name:'西瓜',   r:80, body:'#2d8659', accent:'#1d5e3c', sx:1,   sy:804, sw:339, sh:369 }
+  { name:'蓝莓',   r:14, body:'#3155b8', accent:'#1d3a8a', sx:165, sy:48,   sw:185, sh:215 },
+  { name:'葡萄',   r:19, body:'#7d3eaa', accent:'#5a2982', sx:455, sy:18,   sw:340, sh:265 },
+  { name:'橙子',   r:25, body:'#f39c12', accent:'#b87510', sx:855, sy:48,   sw:265, sh:240 },
+  { name:'猕猴桃', r:31, body:'#94c941', accent:'#8b6f3a', sx:155, sy:325,  sw:300, sh:265 },
+  { name:'苹果',   r:38, body:'#e63946', accent:'#a4262c', sx:480, sy:300,  sw:295, sh:295 },
+  { name:'桃子',   r:45, body:'#ffc1b3', accent:'#e89189', sx:805, sy:318,  sw:340, sh:280 },
+  { name:'菠萝',   r:53, body:'#f4d03f', accent:'#b58a07', sx:50,  sy:595,  sw:255, sh:295 },
+  { name:'椰子',   r:62, body:'#fefefe', accent:'#8b6f3a', sx:320, sy:615,  sw:290, sh:260 },
+  { name:'哈密瓜', r:72, body:'#a8cd6a', accent:'#7a9b3e', sx:615, sy:595,  sw:295, sh:295 },
+  { name:'榴莲',   r:82, body:'#b8c93d', accent:'#7a9b1f', sx:930, sy:600,  sw:255, sh:285 },
+  { name:'西瓜',   r:95, body:'#2d8659', accent:'#1d5e3c', sx:270, sy:885,  sw:370, sh:355 }
 ];
-const FINAL_TYPE = FRUITS.length - 1; // 西瓜 = 9
+const CUT_MELON_SPRITE = { sx: 645, sy: 885, sw: 380, sh: 355 };
+const FINAL_TYPE = FRUITS.length - 1; // 西瓜 = 10
 
-// 加载雪碧图（同目录下的 watermelon-battle.png）
-const spriteImg = new Image();
+// 加载雪碧图（同目录下的 fruits.png），加载失败自动回退到 canvas 绘制
 let spriteReady = false;
-spriteImg.onload = () => { spriteReady = true; };
-spriteImg.onerror = () => { console.warn('sprite sheet failed to load, using color fallback'); };
-spriteImg.src = 'watermelon-battle.png';
+let autoDetected = false;
+const spriteImg = new Image();
+spriteImg.crossOrigin = 'anonymous';
+spriteImg.onload = () => {
+  spriteReady = true;
+  setTimeout(autoDetectSprites, 0);
+};
+spriteImg.onerror = () => { console.warn('fruits.png 加载失败，使用 canvas 绘图回退'); };
+spriteImg.src = 'fruits.png';
+const DEBUG_SPRITES = new URL(location.href).searchParams.get('debug') === '1';
+
+// 自动检测诊断信息（暴露给 debug 覆盖显示）
+let autoDetectInfo = '';
+
+// 利用透明背景自动测出每个水果的精确边界（flood fill）
+function autoDetectSprites() {
+  if (!spriteImg.complete || !spriteImg.naturalWidth) {
+    autoDetectInfo = '图片未加载完';
+    return;
+  }
+  try {
+    const W = spriteImg.naturalWidth, H = spriteImg.naturalHeight;
+    const c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    const cctx = c.getContext('2d');
+    cctx.drawImage(spriteImg, 0, 0);
+    let data;
+    try {
+      data = cctx.getImageData(0, 0, W, H).data;
+    } catch (e) {
+      autoDetectInfo = 'CORS 阻止读取像素';
+      console.warn('getImageData 失败（可能 CORS）：', e);
+      return;
+    }
+
+    // 自动检测背景类型：取四个角落的像素，如果都很暗或全透明 → 透明背景；
+    // 如果都很亮（白）→ 白背景。
+    const corner = (x, y) => {
+      const i = (y * W + x) * 4;
+      return { r: data[i], g: data[i+1], b: data[i+2], a: data[i+3] };
+    };
+    const c1 = corner(2, 2), c2 = corner(W-3, 2), c3 = corner(2, H-3), c4 = corner(W-3, H-3);
+    const avgA = (c1.a + c2.a + c3.a + c4.a) / 4;
+    const isWhiteBg = avgA > 200 && (c1.r + c1.g + c1.b) / 3 > 200;
+    const isTransparentBg = avgA < 30;
+    let isFruit;
+    if (isTransparentBg) {
+      isFruit = (i) => data[i * 4 + 3] >= 30;
+      autoDetectInfo = '背景: 透明';
+    } else if (isWhiteBg) {
+      // 非白即水果（任何颜色显著偏离 255 都算）
+      isFruit = (i) => {
+        const r = data[i*4], g = data[i*4+1], b = data[i*4+2], a = data[i*4+3];
+        if (a < 30) return false;
+        return (255 - Math.min(r, g, b)) > 35;  // 至少有一个通道明显偏暗
+      };
+      autoDetectInfo = '背景: 白色';
+    } else {
+      isFruit = (i) => data[i * 4 + 3] >= 30;
+      autoDetectInfo = `背景: 不明 (corner_a=${avgA.toFixed(0)})`;
+    }
+
+    const MIN_BLOB = 150;
+    const visited = new Uint8Array(W * H);
+    const blobs = [];
+
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const idx = y * W + x;
+        if (visited[idx]) continue;
+        if (!isFruit(idx)) { visited[idx] = 1; continue; }
+        let minX = x, maxX = x, minY = y, maxY = y, count = 0;
+        const stack = [idx];
+        visited[idx] = 1;
+        while (stack.length) {
+          const i = stack.pop();
+          const px = i % W;
+          const py = (i - px) / W;
+          count++;
+          if (px < minX) minX = px;
+          if (px > maxX) maxX = px;
+          if (py < minY) minY = py;
+          if (py > maxY) maxY = py;
+          if (px > 0)     { const n = i - 1; if (!visited[n] && isFruit(n)) { visited[n] = 1; stack.push(n); } }
+          if (px < W - 1) { const n = i + 1; if (!visited[n] && isFruit(n)) { visited[n] = 1; stack.push(n); } }
+          if (py > 0)     { const n = i - W; if (!visited[n] && isFruit(n)) { visited[n] = 1; stack.push(n); } }
+          if (py < H - 1) { const n = i + W; if (!visited[n] && isFruit(n)) { visited[n] = 1; stack.push(n); } }
+        }
+        if (count < MIN_BLOB) continue;
+        blobs.push({ minX, maxX, minY, maxY, count });
+      }
+    }
+    console.log(`检测到 ${blobs.length} 个连通块 [${autoDetectInfo}]`);
+    autoDetectInfo += ` · ${blobs.length}块`;
+
+    // 多次合并：从大到小逐步放宽 proximity 阈值
+    let merged = blobs.map(b => Object.assign({}, b));
+    for (const PROXIMITY of [10, 18, 28, 40]) {
+      if (merged.length <= 12) break;
+      const next = [];
+      const used = new Array(merged.length).fill(false);
+      for (let i = 0; i < merged.length; i++) {
+        if (used[i]) continue;
+        const r = Object.assign({}, merged[i]);
+        used[i] = true;
+        let again = true;
+        while (again) {
+          again = false;
+          for (let j = 0; j < merged.length; j++) {
+            if (used[j]) continue;
+            const b = merged[j];
+            const dx = Math.max(0, Math.max(r.minX - b.maxX, b.minX - r.maxX));
+            const dy = Math.max(0, Math.max(r.minY - b.maxY, b.minY - r.maxY));
+            if (dx < PROXIMITY && dy < PROXIMITY) {
+              r.minX = Math.min(r.minX, b.minX);
+              r.maxX = Math.max(r.maxX, b.maxX);
+              r.minY = Math.min(r.minY, b.minY);
+              r.maxY = Math.max(r.maxY, b.maxY);
+              used[j] = true;
+              again = true;
+            }
+          }
+        }
+        next.push(r);
+      }
+      merged = next;
+    }
+    for (const r of merged) {
+      r.cx = (r.minX + r.maxX) / 2;
+      r.cy = (r.minY + r.maxY) / 2;
+    }
+    console.log(`合并后 ${merged.length} 个水果`);
+    autoDetectInfo += `→${merged.length}水果`;
+
+    if (merged.length < 8) {
+      autoDetectInfo += ' ✗太少';
+      console.warn('水果数量太少，使用手动坐标');
+      return;
+    }
+
+    // 按行分组：自适应阈值
+    merged.sort((a, b) => a.cy - b.cy);
+    let dys = [];
+    for (let i = 1; i < merged.length; i++) dys.push(merged[i].cy - merged[i-1].cy);
+    dys.sort((a,b) => a - b);
+    const medianDy = dys[Math.floor(dys.length / 2)] || 100;
+    const rowThreshold = Math.max(60, medianDy * 1.5); // 大于 1.5 倍中位数才算换行
+    const rows = [];
+    let cur = [], lastY = -Infinity;
+    for (const r of merged) {
+      if (r.cy - lastY > rowThreshold) {
+        if (cur.length) rows.push(cur);
+        cur = [];
+      }
+      cur.push(r);
+      lastY = r.cy;
+    }
+    if (cur.length) rows.push(cur);
+    for (const row of rows) row.sort((a, b) => a.cx - b.cx);
+    const ordered = [].concat(...rows);
+
+    const margin = 4;
+    for (let i = 0; i < FRUITS.length && i < ordered.length; i++) {
+      const r = ordered[i];
+      FRUITS[i].sx = Math.max(0, r.minX - margin);
+      FRUITS[i].sy = Math.max(0, r.minY - margin);
+      FRUITS[i].sw = Math.min(W - FRUITS[i].sx, (r.maxX - r.minX) + margin * 2);
+      FRUITS[i].sh = Math.min(H - FRUITS[i].sy, (r.maxY - r.minY) + margin * 2);
+    }
+    if (ordered.length > FRUITS.length) {
+      const r = ordered[FRUITS.length];
+      CUT_MELON_SPRITE.sx = Math.max(0, r.minX - margin);
+      CUT_MELON_SPRITE.sy = Math.max(0, r.minY - margin);
+      CUT_MELON_SPRITE.sw = Math.min(W - CUT_MELON_SPRITE.sx, (r.maxX - r.minX) + margin * 2);
+      CUT_MELON_SPRITE.sh = Math.min(H - CUT_MELON_SPRITE.sy, (r.maxY - r.minY) + margin * 2);
+    }
+    autoDetected = true;
+    autoDetectInfo += ' ✓';
+    console.log('自动校准成功！', FRUITS.map(f => `${f.name}: ${f.sx},${f.sy} ${f.sw}×${f.sh}`));
+  } catch (e) {
+    autoDetectInfo = '异常: ' + e.message;
+    console.warn('自动校准失败：', e);
+  }
+}
 
 const BIN_W = 300, TOP_Y = 80, FLOOR_Y = 690, DROP_Y = 42, MY_X = 20;
 const RC_X = 340, RC_W = 130;
@@ -615,6 +1093,8 @@ function rand5() { return Math.floor(Math.random() * 5); }
 let me, opp;
 let particles = [];
 let frame = 0;
+let victoryAnim = 0; // 0..1, animation progress when winning
+let victoryParticles = [];
 
 function resetGame() {
   me = makeMe(); opp = makeOpp(); particles = [];
@@ -678,9 +1158,14 @@ function endTouch(e) {
   e.preventDefault();
   for (const t of e.changedTouches) {
     if (myTouchId === t.identifier) {
-      if (phase === 'playing') tryDrop();
+      if (phase === 'gameover') { leaveGame(); }
+      else if (phase === 'playing') tryDrop();
       myTouchId = null;
     }
+  }
+  // 在 gameover 阶段任何触摸结束都回大厅
+  if (phase === 'gameover' && e.changedTouches.length > 0) {
+    leaveGame();
   }
 }
 canvas.addEventListener('touchend', endTouch, { passive: false });
@@ -699,7 +1184,11 @@ canvas.addEventListener('mousemove', e => {
   const r = canvas.getBoundingClientRect();
   moveTo((e.clientX - r.left) * canvas.width / r.width);
 });
-canvas.addEventListener('mouseup', () => { if (mDown && phase === 'playing') tryDrop(); mDown = false; });
+canvas.addEventListener('mouseup', (e) => {
+  if (phase === 'gameover') { leaveGame(); mDown = false; return; }
+  if (mDown && phase === 'playing') tryDrop();
+  mDown = false;
+});
 canvas.addEventListener('mouseleave', () => { mDown = false; });
 
 // ============================================================
@@ -710,16 +1199,18 @@ function activatePower(power) {
   if (me.powers[power] <= 0) return;
   if (power === 'shake') {
     me.powers.shake--;
+    // 横向冲击保持有力，但上下浮动减小，避免水果跳出红线
     for (const f of me.fruits) {
-      f.vx += (Math.random() - 0.5) * 16;
-      f.vy -= 4 + Math.random() * 6;
+      f.vx += (Math.random() - 0.5) * 28;
+      f.vy -= 1.5 + Math.random() * 3;  // 大幅缩小上抛（原 10-20 → 1.5-4.5）
     }
+    me.shakeAmt = 16;
     me.shakeAmt = 16;
     beep(150, 0.25, 'sawtooth', 0.04);
   } else if (power === 'combo') {
     me.powers.combo--;
-    // 给 5 个樱桃（type 2）
-    const t = 2;
+    // 给 5 个苹果（type 4）
+    const t = 4;
     me.currentType = t;
     const fr = FRUITS[t].r;
     me.currentX = clamp(me.currentX, MY_X + fr + 4, MY_X + BIN_W - fr - 4);
@@ -893,6 +1384,10 @@ function onMyDeath() {
   spawnParticles(MY_X + BIN_W / 2, TOP_Y + 60, '#e74c3c', 50);
   me.fruits = []; me.shakeAmt = 30;
   beep(150, 0.5, 'sawtooth', 0.08);
+  if (isSolo) {
+    setTimeout(() => showResult('单人出局', 'soloDeath'), 1400);
+    return;
+  }
   send({ t: 'lost', score: me.score });
   setTimeout(() => {
     if (!opp.alive) {
@@ -919,6 +1414,10 @@ let winDeclared = false;
 function onMyWin() {
   if (phase !== 'playing' || winDeclared) return;
   winDeclared = true;
+  if (isSolo) {
+    setTimeout(() => showResult('合成大西瓜', 'watermelon'), 1100);
+    return;
+  }
   send({ t: 'won', score: me.score, reason: 'watermelon' });
   setTimeout(() => showResult('你赢了', 'watermelon'), 1100);
 }
@@ -931,8 +1430,12 @@ function onOppWon(s) {
 }
 
 function onTimeUp() {
-  // 时间到，按当前分数判定（双方都还活着）
+  // 时间到
   if (phase !== 'playing') return;
+  if (isSolo) {
+    showResult('单局结束', 'soloTime');
+    return;
+  }
   let r;
   if (me.score > opp.score) r = '你赢了';
   else if (me.score < opp.score) r = '你输了';
@@ -940,12 +1443,62 @@ function onTimeUp() {
   showResult(r);
 }
 
+function startVictoryAnim() {
+  victoryAnim = 0.001;
+  victoryParticles = [];
+  // 撒花粒子
+  for (let i = 0; i < 60; i++) {
+    const colors = ['#fdcb6e', '#e74c3c', '#00b894', '#0984e3', '#a29bfe', '#ff7f7f'];
+    victoryParticles.push({
+      x: 240, y: 360,
+      vx: (Math.random() - 0.5) * 14,
+      vy: -8 - Math.random() * 8,
+      gravity: 0.25 + Math.random() * 0.15,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      r: 3 + Math.random() * 4,
+      rot: Math.random() * Math.PI * 2,
+      vrot: (Math.random() - 0.5) * 0.3,
+      life: 200,
+      max: 200
+    });
+  }
+  // 三连胜利音
+  beep(660, 0.15, 'triangle', 0.07);
+  setTimeout(() => beep(880, 0.15, 'triangle', 0.07), 150);
+  setTimeout(() => beep(1100, 0.25, 'triangle', 0.07), 300);
+}
+
 function showResult(txt, reason) {
   if (phase === 'gameover') return;
   phase = 'gameover';
+  // 触发胜利动画（合成西瓜或赢了对手）
+  const isWin = (reason === 'watermelon' || txt === '你赢了' || txt.indexOf('赢') >= 0);
+  if (isWin) startVictoryAnim();
   const overlay = $('overlay'); const rt = $('resultText');
   const title = $('overlayTitle'); const msg = $('overlayMsg');
   let subtitle = '';
+
+  if (isSolo) {
+    const isNewHigh = me.score > soloHighScore;
+    if (isNewHigh) {
+      try { localStorage.setItem('wmbSoloHigh', String(me.score)); } catch (e) {}
+      soloHighScore = me.score;
+    }
+    if (reason === 'watermelon') {
+      rt.textContent = '🍉 合成大西瓜！'; rt.className = 'result win'; title.textContent = '完美通关';
+      subtitle = '完成最终合成！';
+    } else if (reason === 'soloDeath') {
+      rt.textContent = '💥 出局'; rt.className = 'result lose'; title.textContent = '游戏结束';
+      subtitle = '水果溢出啦';
+    } else {
+      rt.textContent = '⏱ 时间到'; rt.className = 'result tie'; title.textContent = '单局结束';
+    }
+    msg.innerHTML = `${subtitle ? `<b style="color:#fdcb6e">${subtitle}</b><br>` : ''}本局分数: <b style="font-size:18px;">${me.score}</b><br>${isNewHigh ? '<b style="color:#fdcb6e">🎉 新纪录！</b><br>' : ''}历史最高: <b>${soloHighScore}</b>`;
+    overlay.classList.add('show');
+    updatePowerButtons();
+    return;
+  }
+
   if (txt === '你赢了') {
     if (reason === 'watermelon') {
       rt.textContent = '🍉 合成大西瓜！'; subtitle = '你赢了';
@@ -979,6 +1532,7 @@ function stepParticles() {
 }
 
 function maybeSendState() {
+  if (isSolo) return;
   const now = performance.now();
   if (now - lastSyncSent < 100) return;
   lastSyncSent = now;
@@ -998,6 +1552,18 @@ function updateTimerDisplay(remainMs) {
 
 function update() {
   frame++;
+  // 推进胜利动画
+  if (victoryAnim > 0 && victoryAnim < 1) {
+    victoryAnim = Math.min(1, victoryAnim + 0.012);
+  }
+  for (const p of victoryParticles) {
+    p.x += p.vx; p.y += p.vy;
+    p.vy += p.gravity;
+    p.vx *= 0.99;
+    p.rot += p.vrot;
+    p.life--;
+  }
+  victoryParticles = victoryParticles.filter(p => p.life > 0);
   if (phase === 'countdown') { stepParticles(); if (performance.now() >= countdownEnd) startPlaying(); return; }
   if (phase === 'gameover') { stepParticles(); return; }
   if (phase !== 'playing') return;
@@ -1028,24 +1594,13 @@ function drawCuteFruit(x, y, type, opts) {
   const breath = opts.breath || 0;
   const rot = opts.rot || 0;
   const mergeScale = opts.mergeScale || 0;
-
-  // 落地挤压 + 合成弹跳 + 静止呼吸三层叠加
-  const popBoost = 1 + mergeScale * 0.35;
-  const breathX = 1 + Math.sin(breath) * 0.018;
-  const breathY = 1 + Math.cos(breath) * 0.013;
-  const sxScale = (1 + squash * 0.18) * popBoost * breathX;
-  const syScale = (1 - squash * 0.22) * popBoost * breathY;
+  const blink = opts.blink || 0;
+  const alpha = opts.alpha != null ? opts.alpha : 1;
 
   ctx.save();
-  if (opts.alpha != null) ctx.globalAlpha = opts.alpha;
+  ctx.globalAlpha = alpha;
 
-  // 椭圆阴影（不旋转，始终在脚下）
-  ctx.fillStyle = 'rgba(0,0,0,0.18)';
-  ctx.beginPath();
-  ctx.ellipse(x + 2, y + r * 0.88, r * 0.85, r * 0.16, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // 合成时的金色发光环
+  // 合成时金色发光
   if (flash > 0) {
     const a = Math.min(0.85, flash / 18 * 0.75);
     ctx.fillStyle = `rgba(255,240,160,${a})`;
@@ -1054,28 +1609,472 @@ function drawCuteFruit(x, y, type, opts) {
 
   ctx.translate(x, y);
   ctx.rotate(rot);
+
+  // 落地挤压
+  let sxScale = 1, syScale = 1;
+  if (squash > 0) { sxScale = 1 + squash * 0.15; syScale = 1 - squash * 0.25; }
+  // 合成弹跳
+  if (mergeScale > 0) {
+    const s = 1 + Math.sin(mergeScale * Math.PI) * 0.2;
+    sxScale *= s; syScale *= s;
+  }
+  // 呼吸
+  if (breath) {
+    const s = 1 + Math.sin(breath) * 0.04;
+    sxScale *= s; syScale *= s;
+  }
   ctx.scale(sxScale, syScale);
 
   if (spriteReady) {
-    // drawImage：保持原图宽高比，按物理直径放大；视觉略大于碰撞圆 (1.08×) 让有 stem 的水果完整显示
+    // 用图片
     const dw = r * 2.16;
     const dh = dw * (f.sh / f.sw);
-    // 视觉中心比碰撞中心偏下一点，让 stem 露在上面
-    const dy = -dh / 2 + dh * 0.04;
+    const dy = -dh / 2 + dh * 0.04; // 视觉中心略微下移以露出顶部 stem
     ctx.drawImage(spriteImg, f.sx, f.sy, f.sw, f.sh, -dw / 2, dy, dw, dh);
   } else {
-    // 回退方案：纯色圆 + 简化高光（图片加载完成前的兜底）
-    ctx.fillStyle = f.body;
-    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,0.35)';
-    ctx.beginPath();
-    ctx.ellipse(-r * 0.32, -r * 0.4, r * 0.28, r * 0.16, -0.4, 0, Math.PI * 2);
-    ctx.fill();
+    // 回退：canvas 绘制 + 表情
+    drawFruitBody(r, type, f);
+    drawFace(r, blink);
   }
+
   ctx.restore();
 }
 
-// 小图标版本（用于合成路线说明）：直接复用 sprite 缩放
+// ================== 各水果具体画法 ==================
+function drawFruitBody(r, type, f) {
+  switch (type) {
+    case 0: drawBlueberry(r); break;
+    case 1: drawGrape(r); break;
+    case 2: drawOrange(r); break;
+    case 3: drawKiwi(r); break;
+    case 4: drawApple(r); break;
+    case 5: drawPeach(r); break;
+    case 6: drawPineapple(r); break;
+    case 7: drawCoconut(r); break;
+    case 8: drawCantaloupe(r); break;
+    case 9: drawDurian(r); break;
+    case 10: drawWatermelon(r); break;
+  }
+}
+
+function drawCircleBody(r, color, dark) {
+  // 渐变球体
+  const grad = ctx.createRadialGradient(-r * 0.3, -r * 0.4, r * 0.1, 0, 0, r);
+  grad.addColorStop(0, lighten(color, 30));
+  grad.addColorStop(0.6, color);
+  grad.addColorStop(1, dark || darken(color, 20));
+  ctx.fillStyle = grad;
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+  // 高光
+  ctx.fillStyle = 'rgba(255,255,255,0.45)';
+  ctx.beginPath();
+  ctx.ellipse(-r * 0.32, -r * 0.4, r * 0.28, r * 0.16, -0.4, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  ctx.beginPath(); ctx.arc(-r * 0.45, -r * 0.55, r * 0.1, 0, Math.PI * 2); ctx.fill();
+}
+
+function lighten(hex, amt) {
+  const n = parseInt(hex.slice(1), 16);
+  let R = (n >> 16) + amt, G = ((n >> 8) & 0xff) + amt, B = (n & 0xff) + amt;
+  R = Math.min(255, R); G = Math.min(255, G); B = Math.min(255, B);
+  return `rgb(${R},${G},${B})`;
+}
+function darken(hex, amt) {
+  const n = parseInt(hex.slice(1), 16);
+  let R = Math.max(0, (n >> 16) - amt);
+  let G = Math.max(0, ((n >> 8) & 0xff) - amt);
+  let B = Math.max(0, (n & 0xff) - amt);
+  return `rgb(${R},${G},${B})`;
+}
+
+function drawBlueberry(r) {
+  drawCircleBody(r, '#3155b8', '#1d3a8a');
+  // 小花型蒂
+  ctx.fillStyle = '#5577d4';
+  for (let i = 0; i < 5; i++) {
+    const a = i / 5 * Math.PI * 2 - Math.PI / 2;
+    ctx.beginPath();
+    ctx.ellipse(Math.cos(a) * r * 0.18, -r * 0.85 + Math.sin(a) * r * 0.1, r * 0.12, r * 0.07, a, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = '#1d3a8a';
+  ctx.beginPath(); ctx.arc(0, -r * 0.85, r * 0.1, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawGrape(r) {
+  // 整体紫圆
+  drawCircleBody(r, '#7d3eaa', '#5a2982');
+  // 颗粒感
+  ctx.fillStyle = 'rgba(255,255,255,0.25)';
+  const bumps = [[-0.4,-0.1,0.22],[0.4,-0.1,0.22],[-0.2,0.3,0.22],[0.2,0.3,0.22],[0,-0.4,0.18]];
+  for (const [dx,dy,s] of bumps) {
+    ctx.beginPath(); ctx.arc(dx*r, dy*r, r*s, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  for (const [dx,dy,s] of bumps) {
+    ctx.beginPath(); ctx.arc(dx*r + r*0.06, dy*r + r*0.06, r*s*0.3, 0, Math.PI*2); ctx.fill();
+  }
+  // 小绿叶
+  ctx.fillStyle = '#27ae60';
+  ctx.beginPath();
+  ctx.ellipse(r*0.18, -r*0.92, r*0.22, r*0.1, -0.4, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = '#6b4423'; ctx.lineWidth = 2; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(0, -r*0.95); ctx.lineTo(0, -r*1.05); ctx.stroke();
+}
+
+function drawOrange(r) {
+  drawCircleBody(r, '#f39c12', '#b87510');
+  // 表皮纹理
+  ctx.fillStyle = 'rgba(180,90,0,0.18)';
+  for (let i = 0; i < 12; i++) {
+    const a = i / 12 * Math.PI * 2;
+    ctx.beginPath();
+    ctx.arc(Math.cos(a) * r * 0.55, Math.sin(a) * r * 0.55, r * 0.05, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // 顶部蒂 + 叶
+  ctx.fillStyle = '#27ae60';
+  ctx.beginPath();
+  ctx.ellipse(r*0.15, -r*0.95, r*0.25, r*0.1, -0.4, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#1e8449';
+  ctx.beginPath(); ctx.arc(0, -r*0.92, r*0.08, 0, Math.PI*2); ctx.fill();
+}
+
+function drawKiwi(r) {
+  // 棕色边缘
+  ctx.fillStyle = '#8b6f3a';
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI*2); ctx.fill();
+  // 纤维边
+  ctx.strokeStyle = '#6b5226';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 16; i++) {
+    const a = i / 16 * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a) * r * 0.86, Math.sin(a) * r * 0.86);
+    ctx.lineTo(Math.cos(a) * r * 1.0, Math.sin(a) * r * 1.0);
+    ctx.stroke();
+  }
+  // 绿色果肉
+  const grad = ctx.createRadialGradient(0, 0, r*0.1, 0, 0, r * 0.85);
+  grad.addColorStop(0, '#d4f08a');
+  grad.addColorStop(0.7, '#94c941');
+  grad.addColorStop(1, '#7a9b3e');
+  ctx.fillStyle = grad;
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.85, 0, Math.PI * 2); ctx.fill();
+  // 中心白色
+  ctx.fillStyle = '#fff8d4';
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.18, 0, Math.PI * 2); ctx.fill();
+  // 黑色种子环
+  ctx.fillStyle = '#1a1a1a';
+  for (let i = 0; i < 12; i++) {
+    const a = i / 12 * Math.PI * 2;
+    ctx.beginPath();
+    ctx.ellipse(Math.cos(a) * r * 0.45, Math.sin(a) * r * 0.45, r * 0.04, r * 0.06, a, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // 高光
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  ctx.beginPath();
+  ctx.ellipse(-r*0.3, -r*0.4, r*0.22, r*0.13, -0.4, 0, Math.PI*2); ctx.fill();
+}
+
+function drawApple(r) {
+  drawCircleBody(r, '#e63946', '#a4262c');
+  // 茎
+  ctx.strokeStyle = '#6b4423';
+  ctx.lineWidth = Math.max(2.5, r * 0.07);
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(0, -r * 0.95);
+  ctx.quadraticCurveTo(r * 0.08, -r * 1.1, r * 0.03, -r * 1.18);
+  ctx.stroke();
+  // 叶
+  ctx.fillStyle = '#2ecc71';
+  ctx.beginPath();
+  ctx.ellipse(r * 0.25, -r * 1.05, r * 0.25, r * 0.12, -0.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#1e8449'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(r * 0.05, -r * 1.0);
+  ctx.lineTo(r * 0.45, -r * 1.08);
+  ctx.stroke();
+}
+
+function drawPeach(r) {
+  // 渐变粉桃
+  const grad = ctx.createRadialGradient(-r * 0.3, -r * 0.4, r * 0.1, 0, 0, r);
+  grad.addColorStop(0, '#fff4f0');
+  grad.addColorStop(0.5, '#ffc1b3');
+  grad.addColorStop(1, '#e89189');
+  ctx.fillStyle = grad;
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+  // 中心裂痕
+  ctx.strokeStyle = 'rgba(180,90,90,0.4)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(0, -r * 0.85);
+  ctx.bezierCurveTo(-r * 0.08, -r * 0.4, r * 0.05, r * 0.3, 0, r * 0.7);
+  ctx.stroke();
+  // 高光
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.beginPath();
+  ctx.ellipse(-r * 0.32, -r * 0.4, r * 0.28, r * 0.16, -0.4, 0, Math.PI * 2); ctx.fill();
+  // 茎+叶
+  ctx.strokeStyle = '#6b4423'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(0, -r * 0.95); ctx.lineTo(r * 0.05, -r * 1.08); ctx.stroke();
+  ctx.fillStyle = '#2ecc71';
+  ctx.beginPath();
+  ctx.ellipse(r * 0.22, -r * 1.0, r * 0.22, r * 0.1, -0.4, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawPineapple(r) {
+  // 黄色椭圆身
+  const grad = ctx.createRadialGradient(-r * 0.3, -r * 0.4, r * 0.1, 0, 0, r);
+  grad.addColorStop(0, '#fff5a0');
+  grad.addColorStop(0.6, '#f4d03f');
+  grad.addColorStop(1, '#b58a07');
+  ctx.fillStyle = grad;
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+  // 菱形纹
+  ctx.strokeStyle = 'rgba(120,80,0,0.5)'; ctx.lineWidth = 1.2;
+  for (let yy = -r * 0.65; yy <= r * 0.65; yy += r * 0.22) {
+    for (let xx = -r * 0.65; xx <= r * 0.65; xx += r * 0.22) {
+      if (Math.hypot(xx, yy) < r * 0.85) {
+        ctx.beginPath();
+        ctx.moveTo(xx - r * 0.11, yy);
+        ctx.lineTo(xx, yy - r * 0.11);
+        ctx.lineTo(xx + r * 0.11, yy);
+        ctx.lineTo(xx, yy + r * 0.11);
+        ctx.closePath(); ctx.stroke();
+      }
+    }
+  }
+  // 高光
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  ctx.beginPath();
+  ctx.ellipse(-r * 0.3, -r * 0.4, r * 0.25, r * 0.14, -0.4, 0, Math.PI * 2); ctx.fill();
+  // 顶部叶冠
+  ctx.fillStyle = '#27ae60';
+  const leaves = [[0, 0.85, 0.18], [-0.3, 0.65, 0.16], [0.3, 0.65, 0.16], [-0.12, 0.55, 0.13], [0.12, 0.55, 0.13]];
+  for (const [dx, h, w] of leaves) {
+    ctx.save();
+    ctx.translate(dx * r, -r * 0.85);
+    ctx.beginPath();
+    ctx.moveTo(-r * w, 0);
+    ctx.lineTo(0, -r * h);
+    ctx.lineTo(r * w, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#1e8449';
+    ctx.beginPath();
+    ctx.moveTo(-r * w * 0.4, 0);
+    ctx.lineTo(0, -r * h * 0.85);
+    ctx.lineTo(r * w * 0.4, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#27ae60';
+    ctx.restore();
+  }
+}
+
+function drawCoconut(r) {
+  // 棕色外壳（下半部）
+  ctx.fillStyle = '#8b6f3a';
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.fill();
+  // 椰肉（白色内部）
+  const grad = ctx.createRadialGradient(-r * 0.2, -r * 0.3, r * 0.1, 0, 0, r * 0.85);
+  grad.addColorStop(0, '#ffffff');
+  grad.addColorStop(0.7, '#f5e6d0');
+  grad.addColorStop(1, '#e0c8a0');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(0, -r * 0.05, r * 0.78, 0, Math.PI * 2);
+  ctx.fill();
+  // 棕色边缘锯齿
+  ctx.strokeStyle = '#6b5226'; ctx.lineWidth = 1.5;
+  for (let i = 0; i < 18; i++) {
+    const a = i / 18 * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a) * r * 0.78, -r * 0.05 + Math.sin(a) * r * 0.78);
+    ctx.lineTo(Math.cos(a) * r * 0.85, -r * 0.05 + Math.sin(a) * r * 0.85);
+    ctx.stroke();
+  }
+  // 三个椰孔点
+  ctx.fillStyle = '#5a4520';
+  ctx.beginPath(); ctx.arc(-r * 0.15, -r * 0.6, r * 0.04, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(r * 0.15, -r * 0.6, r * 0.04, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(0, -r * 0.45, r * 0.04, 0, Math.PI * 2); ctx.fill();
+  // 高光
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.beginPath();
+  ctx.ellipse(-r * 0.3, -r * 0.4, r * 0.2, r * 0.1, -0.4, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawCantaloupe(r) {
+  drawCircleBody(r, '#a8cd6a', '#7a9b3e');
+  // 网纹
+  ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1.2;
+  for (let i = -3; i <= 3; i++) {
+    ctx.beginPath();
+    const yy = i * r * 0.28;
+    if (Math.abs(yy) < r) {
+      const xExtent = Math.sqrt(r * r - yy * yy) * 0.95;
+      ctx.moveTo(-xExtent, yy); ctx.lineTo(xExtent, yy);
+      ctx.stroke();
+    }
+  }
+  for (let i = -3; i <= 3; i++) {
+    ctx.beginPath();
+    const xx = i * r * 0.28;
+    if (Math.abs(xx) < r) {
+      const yExtent = Math.sqrt(r * r - xx * xx) * 0.95;
+      ctx.moveTo(xx, -yExtent); ctx.lineTo(xx, yExtent);
+      ctx.stroke();
+    }
+  }
+  // 茎
+  ctx.strokeStyle = '#6b4423'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(0, -r); ctx.quadraticCurveTo(r * 0.08, -r * 1.12, r * 0.04, -r * 1.18);
+  ctx.stroke();
+}
+
+function drawDurian(r) {
+  // 主体颜色
+  drawCircleBody(r, '#b8c93d', '#7a9b1f');
+  // 刺
+  ctx.fillStyle = '#a3b62f';
+  ctx.strokeStyle = '#6b8015'; ctx.lineWidth = 1;
+  const spikes = 28;
+  for (let i = 0; i < spikes; i++) {
+    const a = i / spikes * Math.PI * 2;
+    const inner = r * 0.85;
+    const outer = r * 1.06;
+    const cx = Math.cos(a), cy = Math.sin(a);
+    ctx.save();
+    ctx.translate(cx * inner, cy * inner);
+    ctx.rotate(a);
+    ctx.beginPath();
+    ctx.moveTo(0, -r * 0.07);
+    ctx.lineTo(outer - inner + r * 0.08, 0);
+    ctx.lineTo(0, r * 0.07);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+  // 茎
+  ctx.strokeStyle = '#6b4423'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(0, -r * 1.0); ctx.lineTo(r * 0.04, -r * 1.18);
+  ctx.stroke();
+}
+
+function drawWatermelon(r) {
+  drawCircleBody(r, '#2d8659', '#1d5e3c');
+  // 深绿条纹
+  ctx.strokeStyle = '#0d4a2e'; ctx.lineWidth = r * 0.09; ctx.lineCap = 'round';
+  for (let i = -2; i <= 2; i++) {
+    const cx = i * r * 0.3;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.sin(i * 0.5) * r * 0.1, -r * 0.92);
+    ctx.quadraticCurveTo(cx, 0, cx + Math.sin(i * 0.5) * r * 0.1, r * 0.92);
+    ctx.stroke();
+  }
+  // 茎
+  ctx.strokeStyle = '#1e5631'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(0, -r); ctx.lineTo(r * 0.06, -r * 1.12);
+  ctx.stroke();
+}
+
+// ==========================================================
+// 切开西瓜（胜利图）
+// ==========================================================
+function drawCutWatermelon(cx, cy, r) {
+  if (spriteReady) {
+    const dw = r * 2.1;
+    const dh = dw * (CUT_MELON_SPRITE.sh / CUT_MELON_SPRITE.sw);
+    ctx.drawImage(spriteImg, CUT_MELON_SPRITE.sx, CUT_MELON_SPRITE.sy, CUT_MELON_SPRITE.sw, CUT_MELON_SPRITE.sh, cx - dw/2, cy - dh/2, dw, dh);
+    return;
+  }
+  ctx.save();
+  ctx.translate(cx, cy);
+  // 外绿
+  ctx.fillStyle = '#2d8659';
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+  // 浅绿圈
+  ctx.fillStyle = '#a8d088';
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.92, 0, Math.PI * 2); ctx.fill();
+  // 红色果肉
+  const grad = ctx.createRadialGradient(0, 0, r * 0.1, 0, 0, r * 0.85);
+  grad.addColorStop(0, '#ff8a6b');
+  grad.addColorStop(0.6, '#e74c3c');
+  grad.addColorStop(1, '#c0392b');
+  ctx.fillStyle = grad;
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.85, 0, Math.PI * 2); ctx.fill();
+  // 黑色种子
+  ctx.fillStyle = '#1a1a1a';
+  const seeds = [
+    [-0.4,-0.2],[0.4,-0.2],[-0.2,0.1],[0.2,0.1],[0,0.4],[-0.5,0.3],[0.5,0.3],
+    [-0.3,-0.5],[0.3,-0.5],[-0.6,0],[0.6,0],[0,-0.3],[-0.15,0.55],[0.15,0.55]
+  ];
+  for (const [dx, dy] of seeds) {
+    ctx.beginPath();
+    ctx.ellipse(dx * r, dy * r, r * 0.04, r * 0.07, dx * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // 高光
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  ctx.beginPath();
+  ctx.ellipse(-r * 0.3, -r * 0.4, r * 0.3, r * 0.18, -0.4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+// ================== 表情 ==================
+function drawFace(r, blink) {
+  const eyeY = r * 0.05;
+  const eyeOff = r * 0.32;
+  const eyeR = Math.max(2.2, r * 0.13);
+  if (blink > 6) {
+    ctx.strokeStyle = '#2c2c2c'; ctx.lineWidth = Math.max(1.5, r * 0.08); ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(-eyeOff, eyeY, eyeR, Math.PI + 0.3, 2 * Math.PI - 0.3); ctx.stroke();
+    ctx.beginPath(); ctx.arc(eyeOff, eyeY, eyeR, Math.PI + 0.3, 2 * Math.PI - 0.3); ctx.stroke();
+  } else {
+    ctx.fillStyle = '#2c2c2c';
+    ctx.beginPath();
+    ctx.arc(-eyeOff, eyeY, eyeR, 0, Math.PI * 2);
+    ctx.arc(eyeOff, eyeY, eyeR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'white';
+    ctx.beginPath();
+    ctx.arc(-eyeOff + eyeR * 0.35, eyeY - eyeR * 0.35, eyeR * 0.4, 0, Math.PI * 2);
+    ctx.arc(eyeOff + eyeR * 0.35, eyeY - eyeR * 0.35, eyeR * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // 腮红
+  ctx.fillStyle = 'rgba(255,110,130,0.55)';
+  ctx.beginPath();
+  ctx.arc(-r * 0.55, r * 0.22, r * 0.13, 0, Math.PI * 2);
+  ctx.arc(r * 0.55, r * 0.22, r * 0.13, 0, Math.PI * 2);
+  ctx.fill();
+  // 笑嘴
+  ctx.strokeStyle = '#2c2c2c'; ctx.lineWidth = Math.max(1.4, r * 0.07); ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.arc(0, r * 0.18, r * 0.18, 0.25, Math.PI - 0.25);
+  ctx.stroke();
+  // 小舌头
+  ctx.fillStyle = '#ff7f7f';
+  ctx.beginPath();
+  ctx.ellipse(0, r * 0.32, r * 0.07, r * 0.05, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// ================== 小图标版本 ==================
 function drawTinyFruit(x, y, type, radius) {
   const f = FRUITS[type];
   if (spriteReady) {
@@ -1084,14 +2083,16 @@ function drawTinyFruit(x, y, type, radius) {
     ctx.drawImage(spriteImg, f.sx, f.sy, f.sw, f.sh, x - dw/2, y - dh/2 + dh*0.04, dw, dh);
   } else {
     ctx.save();
-    ctx.fillStyle = f.body;
-    ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI*2); ctx.fill();
-    ctx.strokeStyle = f.accent; ctx.lineWidth = 1; ctx.stroke();
+    ctx.translate(x, y);
+    const ratio = radius / f.r;
+    ctx.scale(ratio, ratio);
+    drawFruitBody(f.r, type, f);
     ctx.restore();
   }
 }
 
 function drawMyBin() {
+
   const shake = me.shakeAmt;
   const sx = (Math.random() - 0.5) * shake;
   const sy = (Math.random() - 0.5) * shake;
@@ -1243,6 +2244,52 @@ function drawRightCol() {
   ctx.fillStyle = '#fff5d9'; ctx.fillRect(RC_X, 10, RC_W, FLOOR_Y - 10);
   ctx.strokeStyle = '#f39c12'; ctx.lineWidth = 2;
   ctx.strokeRect(RC_X, 10, RC_W, FLOOR_Y - 10);
+
+  if (isSolo) {
+    // Solo practice stats panel
+    ctx.fillStyle = '#2d3436'; ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillText('单人练习', RC_X + RC_W/2, 18);
+    ctx.fillStyle = '#6c5ce7'; ctx.font = 'bold 9px sans-serif';
+    ctx.fillText('🎯 SOLO', RC_X + RC_W/2, 32);
+
+    // Big high-score badge
+    const boxX = RC_X + 10, boxY = 56, boxW = RC_W - 20;
+    ctx.fillStyle = 'linear-gradient' ? '#fff' : '#fff';
+    ctx.fillRect(boxX, boxY, boxW, 60);
+    ctx.strokeStyle = '#fdcb6e'; ctx.lineWidth = 2;
+    ctx.strokeRect(boxX, boxY, boxW, 60);
+    ctx.fillStyle = '#95a5a6'; ctx.font = '9px sans-serif';
+    ctx.fillText('🏆 历史最高', RC_X + RC_W/2, boxY + 6);
+    ctx.fillStyle = '#e17055'; ctx.font = 'bold 22px sans-serif';
+    ctx.fillText(soloHighScore, RC_X + RC_W/2, boxY + 22);
+
+    // Current score
+    const sc2X = RC_X + 10, sc2Y = 130, sc2W = RC_W - 20;
+    ctx.fillStyle = '#fff'; ctx.fillRect(sc2X, sc2Y, sc2W, 50);
+    ctx.strokeStyle = '#0984e3'; ctx.lineWidth = 1.5; ctx.strokeRect(sc2X, sc2Y, sc2W, 50);
+    ctx.fillStyle = '#95a5a6'; ctx.font = '9px sans-serif';
+    ctx.fillText('本局得分', RC_X + RC_W/2, sc2Y + 4);
+    ctx.fillStyle = '#2d3436'; ctx.font = 'bold 22px sans-serif';
+    ctx.fillText(me ? me.score : 0, RC_X + RC_W/2, sc2Y + 18);
+    if (me && me.score > soloHighScore && me.score > 0) {
+      ctx.fillStyle = '#fdcb6e'; ctx.font = 'bold 9px sans-serif';
+      ctx.fillText('🔥 破纪录！', RC_X + RC_W/2, sc2Y + 40);
+    }
+
+    // Max fruit reached
+    let by = 200;
+    ctx.fillStyle = '#636e72'; ctx.font = '10px sans-serif'; ctx.textBaseline = 'top';
+    ctx.fillText('当前最大', RC_X + RC_W/2, by);
+    ctx.font = 'bold 12px sans-serif'; ctx.fillStyle = '#2d3436';
+    const maxName = (me && (me.fruits.length > 0 || me.maxFruit > 0)) ? FRUITS[me.maxFruit].name : '—';
+    ctx.fillText(maxName, RC_X + RC_W/2, by + 13);
+
+    // Merge path
+    drawMergePath(RC_X + 4, by + 40, RC_W - 8);
+    return;
+  }
+
   ctx.fillStyle = '#2d3436'; ctx.font = 'bold 11px sans-serif';
   ctx.textAlign = 'center'; ctx.textBaseline = 'top';
   ctx.fillText('对手画面', RC_X + RC_W/2, 18);
@@ -1305,7 +2352,126 @@ function draw() {
   }
 }
 
-function loop() { update(); draw(); requestAnimationFrame(loop); }
+function drawVictoryOverlay() {
+  if (victoryAnim <= 0) return;
+  // 黄色渐进遮罩
+  const a = victoryAnim;
+  ctx.fillStyle = `rgba(45, 52, 54, ${0.55 * a})`;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // 放射光线
+  ctx.save();
+  ctx.translate(240, 340);
+  ctx.rotate(frame * 0.005);
+  const numRays = 16;
+  ctx.fillStyle = `rgba(253, 203, 110, ${0.35 * a})`;
+  for (let i = 0; i < numRays; i++) {
+    ctx.save();
+    ctx.rotate((i / numRays) * Math.PI * 2);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(-30, 350);
+    ctx.lineTo(30, 350);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
+
+  // 切开西瓜（脉动+旋转）
+  const scale = 0.3 + a * 0.95 + Math.sin(frame * 0.1) * 0.05;
+  const cwR = 130 * scale;
+  ctx.save();
+  ctx.translate(240, 340);
+  const wobble = Math.sin(frame * 0.15) * 0.06;
+  ctx.rotate(wobble);
+  drawCutWatermelon(0, 0, cwR);
+  ctx.restore();
+
+  // 文字
+  ctx.save();
+  ctx.translate(240, 200);
+  const txtScale = 0.5 + a * 0.5 + Math.sin(frame * 0.1) * 0.03;
+  ctx.scale(txtScale, txtScale);
+  ctx.fillStyle = '#fdcb6e';
+  ctx.font = 'bold 56px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.shadowColor = 'rgba(0,0,0,0.5)';
+  ctx.shadowBlur = 10;
+  ctx.shadowOffsetY = 4;
+  ctx.fillText('🏆 胜利!', 0, 0);
+  ctx.restore();
+
+  // 撒花
+  for (const p of victoryParticles) {
+    const lifeFrac = p.life / p.max;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, lifeFrac * 1.5);
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.rot);
+    ctx.fillStyle = p.color;
+    ctx.fillRect(-p.r, -p.r * 0.4, p.r * 2, p.r * 0.8);
+    ctx.restore();
+  }
+
+  // 提示 tap
+  if (a > 0.85) {
+    const blink = (Math.sin(frame * 0.15) + 1) / 2;
+    ctx.fillStyle = `rgba(255, 255, 255, ${0.4 + blink * 0.4})`;
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('👆 点击屏幕回到大厅', 240, 560);
+  }
+}
+
+function drawSpriteDebug() {
+  if (!DEBUG_SPRITES || !spriteReady) return;
+  const dispW = 280;
+  const scale = dispW / spriteImg.width;
+  const dispH = spriteImg.height * scale;
+  const ox = canvas.width - dispW - 6;
+  const oy = 6;
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,255,255,0.97)';
+  ctx.fillRect(ox - 3, oy - 3, dispW + 6, dispH + 50);
+  ctx.drawImage(spriteImg, 0, 0, spriteImg.width, spriteImg.height, ox, oy, dispW, dispH);
+  // 红框 + 水果名 + 序号
+  ctx.lineWidth = 1.5;
+  ctx.font = 'bold 9px sans-serif';
+  for (let i = 0; i < FRUITS.length; i++) {
+    const f = FRUITS[i];
+    ctx.strokeStyle = 'red';
+    ctx.strokeRect(ox + f.sx * scale, oy + f.sy * scale, f.sw * scale, f.sh * scale);
+    // 标签放在框左上方，背景色让它清楚
+    const label = `${i}.${f.name}`;
+    const tw = ctx.measureText(label).width + 4;
+    ctx.fillStyle = 'rgba(255,255,0,0.85)';
+    ctx.fillRect(ox + f.sx * scale, oy + f.sy * scale - 11, tw, 11);
+    ctx.fillStyle = '#a00';
+    ctx.fillText(label, ox + f.sx * scale + 2, oy + f.sy * scale - 2);
+  }
+  // 蓝框：切开西瓜
+  ctx.strokeStyle = 'blue';
+  ctx.strokeRect(ox + CUT_MELON_SPRITE.sx * scale, oy + CUT_MELON_SPRITE.sy * scale,
+    CUT_MELON_SPRITE.sw * scale, CUT_MELON_SPRITE.sh * scale);
+  const tw2 = ctx.measureText('胜利:切瓜').width + 4;
+  ctx.fillStyle = 'rgba(180,200,255,0.85)';
+  ctx.fillRect(ox + CUT_MELON_SPRITE.sx * scale, oy + CUT_MELON_SPRITE.sy * scale - 11, tw2, 11);
+  ctx.fillStyle = '#00a';
+  ctx.fillText('胜利:切瓜', ox + CUT_MELON_SPRITE.sx * scale + 2, oy + CUT_MELON_SPRITE.sy * scale - 2);
+  // 状态信息
+  ctx.fillStyle = '#000';
+  ctx.font = 'bold 10px sans-serif';
+  const status = autoDetected ? '✓ 自动校准成功' : '⚠ 未自动校准（手动坐标）';
+  ctx.fillText(`图片: ${spriteImg.naturalWidth}×${spriteImg.naturalHeight}`, ox, oy + dispH + 12);
+  ctx.fillText(status, ox, oy + dispH + 26);
+  ctx.font = '9px sans-serif';
+  ctx.fillText(autoDetectInfo || '(等待检测)', ox, oy + dispH + 40);
+  ctx.restore();
+}
+
+function loop() { update(); draw(); drawVictoryOverlay(); drawSpriteDebug(); requestAnimationFrame(loop); }
 
 initNetwork();
 loop();
@@ -1314,3 +2480,4 @@ loop();
 </script>
 </body>
 </html>
+                                                                                                                                                               
