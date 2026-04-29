@@ -200,7 +200,12 @@ let seats = { A: null, B: null };
 let signalingActive = false;
 let soloHighScore = 0;
 try { soloHighScore = parseInt(localStorage.getItem('wmbSoloHigh') || '0', 10) || 0; } catch (e) {}
-try { myUid = localStorage.getItem('wmbUid'); if (!myUid) { myUid = 'u_' + Math.random().toString(36).slice(2, 12); localStorage.setItem('wmbUid', myUid); } } catch (e) { myUid = 'u_' + Math.random().toString(36).slice(2, 12); }
+// ★ 用 sessionStorage 而不是 localStorage：同标签刷新 uid 不变，但不同标签 = 不同玩家。
+// 之前用 localStorage 导致同 profile 多标签共享 uid，多人对战变成自己跟自己玩，准备永远凑不齐。
+try {
+  myUid = sessionStorage.getItem('wmbUid');
+  if (!myUid) { myUid = 'u_' + Math.random().toString(36).slice(2, 12); sessionStorage.setItem('wmbUid', myUid); }
+} catch (e) { myUid = 'u_' + Math.random().toString(36).slice(2, 12); }
 let myAvatarIdx = Math.floor(Math.random() * AVATARS.length);
 let myAvatar = AVATARS[myAvatarIdx];
 let oppAvatar = '⏳';
@@ -280,6 +285,9 @@ async function initNetwork() {
   const stateRef = fb.ref(fb.db, 'lobby/state');
   let lastStateVal = null;
   let stateListenerActive = false;
+  // ★ 用 startsWith('starting') 判断：每次开始信号都带时间戳后缀（如 'starting:1730290000000'）
+  // 这样 set() 永远是一个新值，Firebase 的 onValue 一定会触发；不会因为上一局残留的
+  // 'starting' 状态导致新一局的 set 同值无效。
   fb.onValue(stateRef, (snap) => {
     const s = snap.val();
     lastStateVal = s;
@@ -288,7 +296,8 @@ async function initNetwork() {
       dlog('✓ Firebase 状态监听器已激活');
     }
     dlog(`Firebase state 更新: ${s}, phase: ${phase}`);
-    if (s === 'starting' && phase === 'lobby') {
+    const isStarting = (typeof s === 'string') && s.startsWith('starting');
+    if (isStarting && phase === 'lobby') {
       dlog('✓ 收到 Firebase "starting" 信号 → 启动倒计时');
       startCountdown();
     }
@@ -305,12 +314,13 @@ async function initNetwork() {
     }
     // 检查本地状态是否满足启动条件
     if (seats.A && seats.B && seats.A.ready && seats.B.ready) {
-      if (lastStateVal !== 'starting') {
+      const lastIsStarting = (typeof lastStateVal === 'string') && lastStateVal.startsWith('starting');
+      if (!lastIsStarting) {
         dlog('⚠ Firebase 状态未更新为 starting，使用本地备用启动机制');
         // 只在 A 座位写入状态
         if (mySeat === 'A') {
           try {
-            fb.set(fb.ref(fb.db, 'lobby/state'), 'starting');
+            fb.set(fb.ref(fb.db, 'lobby/state'), 'starting:' + Date.now());
             dlog('A 座位强制写入 starting 状态');
           } catch (e) {
             dlog('备用写入失败: ' + e.message);
@@ -591,11 +601,12 @@ function maybeStartCountdown() {
   
   dlog(`🎮 启动条件满足: 双方准备就绪。我的座位=${mySeat}`);
   
-  // 只有 A 座位负责写入启动状态到 Firebase
+  // 只有 A 座位负责写入启动状态到 Firebase；带时间戳确保每次都是新值
   if (mySeat === 'A' && window.fb) {
-    dlog('→ A 座位写入 "starting" 到 Firebase');
+    const signal = 'starting:' + Date.now();
+    dlog('→ A 座位写入 "' + signal + '" 到 Firebase');
     try {
-      window.fb.set(window.fb.ref(window.fb.db, 'lobby/state'), 'starting');
+      window.fb.set(window.fb.ref(window.fb.db, 'lobby/state'), signal);
     } catch (e) {
       dlog('✗ 写入失败: ' + e.message);
     }
