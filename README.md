@@ -1,6 +1,6 @@
 # Watermelon Battle
 
-一个基于 HTML5 和 PeerJS 的在线合成大西瓜对战游戏。
+一个基于 HTML5 和 Realtime Database 的在线合成大西瓜对战游戏。
 
 ## 一键部署到 Vercel
 
