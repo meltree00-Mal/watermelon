@@ -1210,14 +1210,14 @@ function activatePower(power) {
   if (me.powers[power] <= 0) return;
   if (power === 'shake') {
     me.powers.shake--;
-    // 强横向 + 对称纵向扰动（无下压偏置），靠 shakeImmune 保护安全
+    // 强初始冲击 + 持续抖动；shakeImmune 期间对称晃动，水果飞过红线不算输
     for (const f of me.fruits) {
-      f.vx += (Math.random() - 0.5) * 30;
-      f.vy += (Math.random() - 0.5) * 6;
+      f.vx += (Math.random() - 0.5) * 40;
+      f.vy += (Math.random() - 0.5) * 20;
     }
-    me.shakeAmt = 36;
-    me.shakeMaxAmt = 36;
-    me.shakeImmune = 90;  // 1.5 秒红线判定免疫
+    me.shakeAmt = 48;
+    me.shakeMaxAmt = 48;
+    me.shakeImmune = 120;  // 2 秒红线免疫，覆盖整个摇晃 + 落定时间
     beep(150, 0.25, 'sawtooth', 0.04);
   } else if (power === 'combo') {
     me.powers.combo--;
@@ -1375,6 +1375,18 @@ function step() {
     }
   }
   if (consumed.size > 0) me.fruits = fruits.filter((_, i) => !consumed.has(i)).concat(newOnes);
+
+  // 持续抖动：在摇晃期间每隔几帧给水果一次小推力，模拟真实晃动
+  if (me.shakeAmt > 0) {
+    const shakeProgress = me.shakeAmt / me.shakeMaxAmt; // 1→0
+    // 每 4 帧推一次，力度随 shakeAmt 递减
+    if (me.shakeAmt % 4 === 0) {
+      for (const f of me.fruits) {
+        f.vx += (Math.random() - 0.5) * 12 * shakeProgress;
+        f.vy += (Math.random() - 0.5) * 6 * shakeProgress;
+      }
+    }
+  }
 
   // 失败判定：水果中心线越过封顶线即出局（摇晃免疫期内不判死）
   if (me.shakeImmune > 0) {
