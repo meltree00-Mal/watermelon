@@ -1210,16 +1210,10 @@ function activatePower(power) {
   if (me.powers[power] <= 0) return;
   if (power === 'shake') {
     me.powers.shake--;
-    // 强横向晃动 + 顶部水果下压（不再把它们抛过红线）
+    // 强横向 + 对称纵向扰动（无下压偏置），靠 shakeImmune 保护安全
     for (const f of me.fruits) {
-      f.vx += (Math.random() - 0.5) * 24;
-      const distFromTop = f.y - TOP_Y;
-      if (distFromTop < 200) {
-        const pushFactor = 1 - distFromTop / 200;
-        f.vy += 2 + pushFactor * 4 + Math.random() * 1.5;
-      } else {
-        f.vy += (Math.random() - 0.5) * 1.5;
-      }
+      f.vx += (Math.random() - 0.5) * 30;
+      f.vy += (Math.random() - 0.5) * 6;
     }
     me.shakeAmt = 36;
     me.shakeMaxAmt = 36;
@@ -1396,7 +1390,15 @@ function step() {
     if (centerOver) onMyDeath();
   }
 
-  if (me.shakeAmt > 0) me.shakeAmt--;
+  // 摇晃期间持续给水果小冲击（搭配开头的大冲击形成"震荡"）
+  if (me.shakeAmt > 0) {
+    const intensity = me.shakeAmt / (me.shakeMaxAmt || 1);
+    for (const f of me.fruits) {
+      f.vx += (Math.random() - 0.5) * 4 * intensity;
+      f.vy += (Math.random() - 0.5) * 2 * intensity;
+    }
+    me.shakeAmt--;
+  }
 }
 
 function onMyDeath() {
